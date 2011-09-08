@@ -1,7 +1,14 @@
 require 'abbrev'
 
 class DiffPatchMatch
+  attr_accessor :diff_timeout
+
   def initialize
+    # Defaults.
+    # Redefine these in your program to override the defaults.
+
+    # Number of seconds to map a diff before giving up (0 for infinity).
+    @diff_timeout = 1
   end
 
   # Determine the common prefix of two strings.
@@ -110,4 +117,68 @@ class DiffPatchMatch
       end
     end
   end
+
+  # Does a substring of shorttext exist within longtext such that the substring
+  # is at least half the length of longtext?
+  def diff_halfMatchI(longtext, shorttext, i)
+    # Start with a 1/4 length Substring at position i as a seed.
+    seed = longtext[i, longtext.length / 4]
+    j = -1
+    best_common = ''
+    while j = shorttext.index(seed, j + 1)
+      prefix_length = diff_commonPrefix(longtext[i..-1], shorttext[j..-1])
+      suffix_length = diff_commonSuffix(longtext[0...i], shorttext[0...j])
+      if best_common.length < suffix_length + prefix_length
+        best_common = shorttext[(j - suffix_length)...j] +
+                      shorttext[j...(j + prefix_length)]
+        best_longtext_a = longtext[0...(i - suffix_length)]
+        best_longtext_b = longtext[(i + prefix_length)..-1]
+        best_shorttext_a = shorttext[0...(j - suffix_length)]
+        best_shorttext_b = shorttext[(j + prefix_length)..-1]
+      end
+    end
+    if best_common.length * 2 >= longtext.length
+      [best_longtext_a, best_longtext_b,
+       best_shorttext_a, best_shorttext_b, best_common]
+    end
+  end
+
+  # Do the two texts share a substring which is at least half the length of the
+  # longer text?
+  # This speedup can produce non-minimal diffs.
+  def diff_halfMatch(text1, text2)
+    # Don't risk returning a non-optimal diff if we have unlimited time
+    return nil if diff_timeout <= 0
+
+    shorttext, longtext = [text1, text2].sort_by(&:length)
+    if longtext.length < 4 || shorttext.length * 2 < longtext.length
+      return nil # Pointless.
+    end
+
+    # First check if the second quarter is the seed for a half-match.
+    hm1 = diff_halfMatchI(longtext, shorttext, (longtext.length / 4.0).ceil)
+    # Check again based on the third quarter.
+    hm2 = diff_halfMatchI(longtext, shorttext, (longtext.length / 2.0).ceil)
+
+    if hm1.nil? && hm2.nil?
+      return nil
+    elsif hm2.nil?
+      hm = hm1
+    elsif hm1.nil?
+      hm = hm2
+    else
+      # Both matched.  Select the longest.
+      hm = hm1[4].length > hm2[4].length ? hm1 : hm2;
+    end
+
+    # A half-match was found, sort out the return data.
+    if text1.length > text2.length
+      text1_a, text1_b, text2_a, text2_b = hm
+    else
+      text2_a, text2_b, text1_a, text1_b = hm
+    end
+    mid_common = hm[4]
+    return [text1_a, text1_b, text2_a, text2_b, mid_common]
+  end
+
 end

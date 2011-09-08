@@ -45,4 +45,45 @@ class DiffTest < Test::Unit::TestCase
     assert_equal(3, @dmp.diff_commonOverlap('123456xxx', 'xxxabcd'))
   end
 
+  def test_diff_halfMatch
+    # Detect a halfmatch.
+    @dmp.diff_timeout = 1
+    # No match.
+    assert_equal(nil, @dmp.diff_halfMatch('1234567890', 'abcdef'));
+
+    assert_equal(nil, @dmp.diff_halfMatch('12345', '23'));
+
+    # Single Match.
+    assert_equal(['12', '90', 'a', 'z', '345678'],
+                 @dmp.diff_halfMatch('1234567890', 'a345678z'))
+
+    assert_equal(['a', 'z', '12', '90', '345678'],
+                 @dmp.diff_halfMatch('a345678z', '1234567890'))
+
+    assert_equal(['abc', 'z', '1234', '0', '56789'],
+                 @dmp.diff_halfMatch('abc56789z', '1234567890'))
+
+    assert_equal(['a', 'xyz', '1', '7890', '23456'],
+                 @dmp.diff_halfMatch('a23456xyz', '1234567890'))
+
+    # Multiple Matches.
+    assert_equal(['12123', '123121', 'a', 'z', '1234123451234'],
+                 @dmp.diff_halfMatch('121231234123451234123121', 'a1234123451234z'))
+
+    assert_equal(['', '-=-=-=-=-=', 'x', '', 'x-=-=-=-=-=-=-='],
+                 @dmp.diff_halfMatch('x-=-=-=-=-=-=-=-=-=-=-=-=', 'xx-=-=-=-=-=-=-='))
+
+    assert_equal(['-=-=-=-=-=', '', '', 'y', '-=-=-=-=-=-=-=y'],
+                 @dmp.diff_halfMatch('-=-=-=-=-=-=-=-=-=-=-=-=y', '-=-=-=-=-=-=-=yy'))
+
+    # Non-optimal halfmatch.
+    # Optimal diff would be -q+x=H-i+e=lloHe+Hu=llo-Hew+y not -qHillo+x=HelloHe-w+Hulloy
+    assert_equal(['qHillo', 'w', 'x', 'Hulloy', 'HelloHe'],
+                 @dmp.diff_halfMatch('qHilloHelloHew', 'xHelloHeHulloy'))
+
+    # Optimal no halfmatch.
+    @dmp.diff_timeout = 0
+    assert_equal(nil, @dmp.diff_halfMatch('qHilloHelloHew', 'xHelloHeHulloy'))
+  end
+
 end

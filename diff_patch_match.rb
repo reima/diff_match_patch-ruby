@@ -387,7 +387,7 @@ class DiffPatchMatch
 
   # Look for single edits surrounded on both sides by equalities
   # which can be shifted sideways to align the edit to a word boundary.
-  # e.g: The c<ins>at c</ins>ame. -> The <ins>cat </ins>came.  
+  # e.g: The c<ins>at c</ins>ame. -> The <ins>cat </ins>came.
   def diff_cleanupSemanticLossless(diffs)
     pointer = 1
     # Intentionally ignore the first and last element (don't need checking).
@@ -450,6 +450,83 @@ class DiffPatchMatch
       end
       pointer += 1
     end
+  end
+
+  # Reduce the number of edits by eliminating semantically trivial equalities.
+  def diff_cleanupSemantic(diffs)
+    changes = false
+    equalities = []  # Stack of indices where equalities are found.
+    last_equality = nil # Always equal to equalities[-1][1]
+    pointer = 0 # Index of current position.
+    # Number of characters that changed prior to the equality.
+    length_insertions1, length_deletions1 = 0, 0
+    # Number of characters that changed after the equality.
+    length_insertions2, length_deletions2 = 0, 0
+
+    while pointer < diffs.length
+      if diffs[pointer][0] == :diff_equal # Equality found.
+        equalities << pointer
+        length_insertions1 = length_insertions2
+        length_deletions1 = length_deletions2
+        length_insertions2 = 0
+        length_deletions2 = 0
+        last_equality = diffs[pointer][1]
+      else  # An insertion or deletion.
+        if diffs[pointer][0] == :diff_insert
+          length_insertions2 += diffs[pointer][1].length
+        else
+          length_deletions2 += diffs[pointer][1].length
+        end
+
+        if last_equality &&
+           last_equality.length <= [length_insertions1, length_deletions1].max &&
+           last_equality.length <= [length_insertions2, length_deletions2].max
+          # Duplicate record.
+          diffs[equalities[-1], 0] = [[:diff_delete, last_equality]]
+          # Change second copy to insert.
+          diffs[equalities[-1] + 1][0] = :diff_insert
+          # Throw away the equality we just deleted.
+          equalities.pop
+          # Throw away the previous equality (it needs to be reevaluated).
+          equalities.pop
+          pointer = equalities.length > 0 ? equalities[-1] : -1
+          length_insertions1, length_deletions1 = 0, 0  # Reset the counters.
+          length_insertions2, length_deletions2 = 0, 0
+          last_equality = nil
+          changes = true
+        end
+      end
+      pointer += 1
+    end
+
+    # Normalize the diff.
+    if changes
+      diff_cleanupMerge(diffs)
+    end
+    diff_cleanupSemanticLossless(diffs)
+
+    # Find any overlaps between deletions and insertions.
+    # e.g: <del>abcxx</del><ins>xxdef</ins>
+    #   -> <del>abc</del>xx<ins>def</ins>
+    pointer = 1
+    while pointer < diffs.length
+      if diffs[pointer - 1][0] == :diff_delete &&
+         diffs[pointer][0] == :diff_insert
+        deletion = diffs[pointer - 1][1]
+        insertion = diffs[pointer][1]
+        overlap_length = diff_commonOverlap(deletion, insertion)
+        if overlap_length != 0
+          # Overlap found.  Insert an equality and trim the surrounding edits.
+          diffs[pointer, 0] = [[:diff_equal, insertion[0...overlap_length]]]
+          diffs[pointer - 1][1] = deletion[0...-overlap_length]
+          diffs[pointer + 1][1] = insertion[overlap_length..-1]
+          pointer += 1
+        end
+        pointer += 1
+      end
+      pointer += 1
+    end
+
   end
 
 end

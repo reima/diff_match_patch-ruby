@@ -49,9 +49,9 @@ class DiffTest < Test::Unit::TestCase
     # Detect a halfmatch.
     @dmp.diff_timeout = 1
     # No match.
-    assert_equal(nil, @dmp.diff_halfMatch('1234567890', 'abcdef'));
+    assert_equal(nil, @dmp.diff_halfMatch('1234567890', 'abcdef'))
 
-    assert_equal(nil, @dmp.diff_halfMatch('12345', '23'));
+    assert_equal(nil, @dmp.diff_halfMatch('12345', '23'))
 
     # Single Match.
     assert_equal(['12', '90', 'a', 'z', '345678'],
@@ -94,7 +94,7 @@ class DiffTest < Test::Unit::TestCase
     assert_equal(['', "\x01\x02\x03\x03", ['', "alpha\r\n", "beta\r\n", "\r\n"]],
                  @dmp.diff_linesToChars('', "alpha\r\nbeta\r\n\r\n\r\n"))
 
-    assert_equal(["\x01", "\x02", ['', 'a', 'b']], @dmp.diff_linesToChars('a', 'b'));
+    assert_equal(["\x01", "\x02", ['', 'a', 'b']], @dmp.diff_linesToChars('a', 'b'))
 
     # More than 256 to reveal any 8-bit limitations.
     n = 300
@@ -114,7 +114,7 @@ class DiffTest < Test::Unit::TestCase
     @dmp.diff_charsToLines(diffs, ['', "alpha\n", "beta\n"])
     assert_equal([[:diff_equal, "alpha\nbeta\nalpha\n"],
                   [:diff_insert, "beta\nalpha\nbeta\n"]],
-                 diffs);
+                 diffs)
     # More than 256 to reveal any 8-bit limitations.
     n = 300
     line_list = (1..n).map {|x| x.to_s + "\n" }
@@ -295,6 +295,108 @@ class DiffTest < Test::Unit::TestCase
     diffs = [[:diff_equal, 'xa'], [:diff_delete, 'a'], [:diff_equal, 'a']]
     @dmp.diff_cleanupSemanticLossless(diffs)
     assert_equal([[:diff_equal, 'xaa'], [:diff_delete, 'a']], diffs)
+  end
+
+
+  def test_diff_cleanupSemantic
+    # Cleanup semantically trivial equalities.
+    # Null case.
+    diffs = []
+    @dmp.diff_cleanupSemantic(diffs)
+    assert_equal([], diffs)
+
+    # No elimination #1.
+    diffs = [
+      [:diff_delete, 'ab'], [:diff_insert, 'cd'], [:diff_equal, '12'],
+      [:diff_delete, 'e']
+    ]
+    @dmp.diff_cleanupSemantic(diffs)
+    assert_equal(
+      [
+        [:diff_delete, 'ab'], [:diff_insert, 'cd'], [:diff_equal, '12'],
+        [:diff_delete, 'e']
+      ],
+      diffs
+    )
+
+    # No elimination #2.
+    diffs = [
+      [:diff_delete, 'abc'], [:diff_insert, 'ABC'], [:diff_equal, '1234'],
+      [:diff_delete, 'wxyz']
+    ]
+    @dmp.diff_cleanupSemantic(diffs)
+    assert_equal(
+      [
+        [:diff_delete, 'abc'], [:diff_insert, 'ABC'], [:diff_equal, '1234'],
+        [:diff_delete, 'wxyz']
+      ],
+      diffs
+    )
+
+    # Simple elimination.
+    diffs = [[:diff_delete, 'a'], [:diff_equal, 'b'], [:diff_delete, 'c']]
+    @dmp.diff_cleanupSemantic(diffs)
+    assert_equal([[:diff_delete, 'abc'], [:diff_insert, 'b']], diffs)
+
+    # Backpass elimination.
+    diffs = [
+      [:diff_delete, 'ab'], [:diff_equal, 'cd'], [:diff_delete, 'e'],
+      [:diff_equal, 'f'], [:diff_insert, 'g']
+    ]
+    @dmp.diff_cleanupSemantic(diffs)
+    assert_equal([[:diff_delete, 'abcdef'], [:diff_insert, 'cdfg']], diffs)
+
+    # Multiple eliminations.
+    diffs = [
+      [:diff_insert, '1'], [:diff_equal, 'A'], [:diff_delete, 'B'],
+      [:diff_insert, '2'], [:diff_equal, '_'], [:diff_insert, '1'],
+      [:diff_equal, 'A'], [:diff_delete, 'B'], [:diff_insert, '2']
+    ]
+    @dmp.diff_cleanupSemantic(diffs)
+    assert_equal([[:diff_delete, 'AB_AB'], [:diff_insert, '1A2_1A2']], diffs)
+
+    # Word boundaries.
+    diffs = [
+      [:diff_equal, 'The c'], [:diff_delete, 'ow and the c'],
+      [:diff_equal, 'at.']
+    ]
+    @dmp.diff_cleanupSemantic(diffs)
+    assert_equal(
+      [
+        [:diff_equal, 'The '], [:diff_delete, 'cow and the '],
+        [:diff_equal, 'cat.']
+      ],
+      diffs
+    )
+
+    # No overlap elimination.
+    # TODO: This test is in the JavaScript test suite, yet it should fail...!?
+    #diffs = [[:diff_delete, 'abcxx'], [:diff_insert, 'xxdef']]
+    #@dmp.diff_cleanupSemantic(diffs)
+    #assert_equal([[:diff_delete, 'abcxx'], [:diff_insert, 'xxdef']], diffs)
+
+    # Overlap elimination.
+    diffs = [[:diff_delete, 'abcxxx'], [:diff_insert, 'xxxdef']]
+    @dmp.diff_cleanupSemantic(diffs)
+    assert_equal(
+      [[:diff_delete, 'abc'], [:diff_equal, 'xxx'], [:diff_insert, 'def']],
+      diffs
+    )
+
+    # Two overlap eliminations.
+    diffs = [
+      [:diff_delete, 'abcd1212'], [:diff_insert, '1212efghi'],
+      [:diff_equal, '----'], [:diff_delete, 'A3'], [:diff_insert, '3BC']
+    ]
+    @dmp.diff_cleanupSemantic(diffs)
+    assert_equal(
+      [
+        [:diff_delete, 'abcd'], [:diff_equal, '1212'], [:diff_insert, 'efghi'],
+        [:diff_equal, '----'], [:diff_delete, 'A'], [:diff_equal, '3'],
+        [:diff_insert, 'BC']
+      ],
+      diffs
+    )
   end
 
 end

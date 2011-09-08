@@ -223,4 +223,78 @@ class DiffTest < Test::Unit::TestCase
     assert_equal([[:diff_equal, 'xca'], [:diff_delete, 'cba']], diffs)
   end
 
+  def test_diff_cleanupSemanticLossless
+    # Slide diffs to match logical boundaries.
+    # Null case.
+    diffs = []
+    @dmp.diff_cleanupSemanticLossless(diffs)
+    assert_equal([], diffs)
+
+    # Blank lines.
+    diffs = [
+      [:diff_equal, "AAA\r\n\r\nBBB"], [:diff_insert, "\r\nDDD\r\n\r\nBBB"],
+      [:diff_equal, "\r\nEEE"]
+    ]
+    @dmp.diff_cleanupSemanticLossless(diffs)
+    assert_equal(
+      [
+        [:diff_equal, "AAA\r\n\r\n"], [:diff_insert, "BBB\r\nDDD\r\n\r\n"],
+        [:diff_equal, "BBB\r\nEEE"]
+      ],
+      diffs
+    )
+
+    # Line boundaries.
+    diffs = [
+      [:diff_equal, "AAA\r\nBBB"], [:diff_insert, " DDD\r\nBBB"],
+      [:diff_equal, " EEE"]
+    ]
+    @dmp.diff_cleanupSemanticLossless(diffs)
+    assert_equal(
+      [
+        [:diff_equal, "AAA\r\n"], [:diff_insert, "BBB DDD\r\n"],
+        [:diff_equal, "BBB EEE"]
+      ],
+      diffs
+    )
+
+    # Word boundaries.
+    diffs = [
+      [:diff_equal, 'The c'], [:diff_insert, 'ow and the c'],
+      [:diff_equal, 'at.']
+    ]
+    @dmp.diff_cleanupSemanticLossless(diffs)
+    assert_equal(
+      [
+        [:diff_equal, 'The '], [:diff_insert, 'cow and the '],
+        [:diff_equal, 'cat.']
+      ],
+      diffs
+    )
+
+    # Alphanumeric boundaries.
+    diffs = [
+      [:diff_equal, 'The-c'], [:diff_insert, 'ow-and-the-c'],
+      [:diff_equal, 'at.']
+    ]
+    @dmp.diff_cleanupSemanticLossless(diffs)
+    assert_equal(
+      [
+        [:diff_equal, 'The-'], [:diff_insert, 'cow-and-the-'],
+        [:diff_equal, 'cat.']
+      ],
+      diffs
+    )
+
+    # Hitting the start.
+    diffs = [[:diff_equal, 'a'], [:diff_delete, 'a'], [:diff_equal, 'ax']]
+    @dmp.diff_cleanupSemanticLossless(diffs)
+    assert_equal([[:diff_delete, 'a'], [:diff_equal, 'aax']], diffs)
+
+    # Hitting the end.
+    diffs = [[:diff_equal, 'xa'], [:diff_delete, 'a'], [:diff_equal, 'a']]
+    @dmp.diff_cleanupSemanticLossless(diffs)
+    assert_equal([[:diff_equal, 'xaa'], [:diff_delete, 'a']], diffs)
+  end
+
 end

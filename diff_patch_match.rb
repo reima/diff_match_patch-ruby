@@ -342,4 +342,114 @@ class DiffPatchMatch
     end
   end
 
+
+  # Given two strings, compute a score representing whether the internal
+  # boundary falls on logical boundaries.
+  # Scores range from 5 (best) to 0 (worst).
+  def diff_cleanupSemanticScore(one, two)
+    if one.empty? || two.empty?
+      # Edges are the best
+      return 5
+    end
+
+    # Define some regex patterns for matching boundaries.
+    punctuation = /[^a-zA-Z0-9]/
+    whitespace = /\s/
+    linebreak = /[\r\n]/
+    blanklineEnd = /\n\r?\n$/
+    blanklineStart = /^\r?\n\r?\n/
+
+    # Each port of this function behaves slightly differently due to
+    # subtle differences in each language's definition of things like
+    # 'whitespace'.  Since this function's purpose is largely cosmetic,
+    # the choice has been made to use each language's native features
+    # rather than force total conformity.
+    score = 0
+    # One point for non-alphanumeric.
+    if one[-1].match(punctuation) || two[0].match(punctuation)
+      score += 1
+      # Two points for whitespace.
+      if one[-1].match(whitespace) || two[0].match(whitespace)
+        score += 1
+        # Three points for line breaks.
+        if one[-1].match(linebreak) || two[0].match(linebreak)
+          score += 1
+          # Four points for blank lines.
+          if one.match(blanklineEnd) || two.match(blanklineStart)
+            score += 1
+          end
+        end
+      end
+    end
+
+    return score
+  end
+
+  # Look for single edits surrounded on both sides by equalities
+  # which can be shifted sideways to align the edit to a word boundary.
+  # e.g: The c<ins>at c</ins>ame. -> The <ins>cat </ins>came.  
+  def diff_cleanupSemanticLossless(diffs)
+    pointer = 1
+    # Intentionally ignore the first and last element (don't need checking).
+    while pointer < diffs.length - 1
+      if diffs[pointer - 1][0] == :diff_equal &&
+         diffs[pointer + 1][0] == :diff_equal
+        # This is a single edit surrounded by equalities.
+        equality1 = diffs[pointer - 1][1]
+        edit      = diffs[pointer][1]
+        equality2 = diffs[pointer + 1][1]
+
+        # First, shift the edit as far left as possible.
+        common_offset = diff_commonSuffix(equality1, edit)
+        if common_offset != 0
+          common_string = edit[-common_offset..-1]
+          equality1 = equality1[0...-common_offset]
+          edit = common_string + edit[0...-common_offset]
+          equality2 = common_string + equality2
+        end
+
+        # Second, step character by character right, looking for the best fit.
+        bestEquality1 = equality1
+        bestEdit = edit
+        bestEquality2 = equality2
+        bestScore =
+          diff_cleanupSemanticScore(equality1, edit) +
+          diff_cleanupSemanticScore(edit, equality2)
+        while edit[0] == equality2[0]
+          equality1 += edit[0]
+          edit = edit[1..-1] + equality2[0];
+          equality2 = equality2[1..-1]
+          score =
+            diff_cleanupSemanticScore(equality1, edit) +
+            diff_cleanupSemanticScore(edit, equality2)
+          # The >= encourages trailing rather than leading whitespace on edits.
+          if score >= bestScore
+            bestScore = score
+            bestEquality1 = equality1
+            bestEdit = edit
+            bestEquality2 = equality2
+          end
+        end
+
+        if diffs[pointer - 1][1] != bestEquality1
+          # We have an improvement, save it back to the diff.
+          if !bestEquality1.empty?
+            diffs[pointer - 1][1] = bestEquality1
+          else
+            diffs[pointer - 1, 1] = []
+            pointer -= 1
+          end
+          diffs[pointer][1] = bestEdit
+          if !bestEquality2.empty?
+            diffs[pointer + 1][1] = bestEquality2
+          else
+            diffs[pointer + 1, 1] = []
+            pointer -= 1
+          end
+        end
+      end
+      pointer += 1
+    end
+  end
+
 end

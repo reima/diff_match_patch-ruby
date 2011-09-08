@@ -223,4 +223,123 @@ class DiffPatchMatch
     end
   end
 
+  # Reorder and merge like edit sections.  Merge equalities.
+  # Any edit section can move as long as it doesn't cross an equality.
+  def diff_cleanupMerge(diffs)
+    diffs << [:diff_equal, ''] # Add a dummy entry at the end.
+    pointer = 0
+    count_delete, count_insert = 0, 0
+    text_delete, text_insert = '', ''
+    while pointer < diffs.length
+      case diffs[pointer][0]
+        when :diff_insert
+          count_insert += 1
+          text_insert += diffs[pointer][1]
+          pointer += 1
+        when :diff_delete
+          count_delete += 1
+          text_delete += diffs[pointer][1]
+          pointer += 1
+        when :diff_equal
+          # Upon reaching an equality, check for prior redundancies.
+          if count_delete + count_insert > 1
+            if count_delete != 0 && count_insert != 0
+              # Factor out any common prefixies.
+              common_length = diff_commonPrefix(text_insert, text_delete)
+              if common_length != 0
+                if (pointer - count_delete - count_insert) > 0 &&
+                    diffs[pointer - count_delete - count_insert - 1][0] ==
+                      :diff_equal
+                  diffs[pointer - count_delete - count_insert - 1][1] +=
+                    text_insert[0...common_length]
+                else
+                  diffs.unshift([:diff_equal, text_insert[0...common_length]])
+                  pointer += 1
+                end
+                text_insert = text_insert[common_length..-1]
+                text_delete = text_delete[common_length..-1]
+              end
+              # Factor out any common suffixies.
+              common_length = diff_commonSuffix(text_insert, text_delete)
+              if common_length != 0
+                diffs[pointer][1] =
+                  text_insert[-common_length..-1] +
+                  diffs[pointer][1]
+                text_insert = text_insert[0...-common_length]
+                text_delete = text_delete[0...-common_length]
+              end
+            end
+            # Delete the offending records and add the merged ones.
+            if count_delete == 0
+              diffs[
+                pointer - count_delete - count_insert,
+                count_delete + count_insert
+              ] = [[:diff_insert, text_insert]]
+            elsif count_insert == 0
+              diffs[
+                pointer - count_delete - count_insert,
+                count_delete + count_insert
+              ] = [[:diff_delete, text_delete]]
+            else
+              diffs[
+                pointer - count_delete - count_insert,
+                count_delete + count_insert
+              ] = [[:diff_delete, text_delete], [:diff_insert, text_insert]]
+            end
+            pointer = pointer - count_delete - count_insert +
+              (count_delete != 0 ? 1 : 0) + (count_insert != 0 ? 1 : 0) + 1
+          elsif pointer != 0 && diffs[pointer - 1][0] == :diff_equal
+            # Merge this equality with the previous one.
+            diffs[pointer - 1][1] += diffs[pointer][1];
+            diffs[pointer, 1] = []
+          else
+            pointer += 1
+          end
+          count_insert, count_delete = 0, 0
+          text_delete, text_insert = '', ''
+      end # case
+    end # while
+
+    if diffs[-1][1] == ''
+      diffs.pop # Remove the dummy entry at the end.
+    end
+
+    # Second pass: look for single edits surrounded on both sides by equalities
+    # which can be shifted sideways to eliminate an equality.
+    # e.g: A<ins>BA</ins>C -> <ins>AB</ins>AC
+    changes = false
+    pointer = 1
+    # Intentionally ignore the first and last element (don't need checking).
+    while pointer < diffs.length - 1
+      if diffs[pointer - 1][0] == :diff_equal &&
+         diffs[pointer + 1][0] == :diff_equal
+        # This is a single edit surrounded by equalities.
+        if diffs[pointer][1][-diffs[pointer - 1][1].length..-1] ==
+           diffs[pointer - 1][1]
+          # Shift the edit over the previous equality.
+          diffs[pointer][1] =
+            diffs[pointer - 1][1] +
+            diffs[pointer][1][0...-diffs[pointer - 1][1].length]
+          diffs[pointer + 1][1] = diffs[pointer - 1][1] + diffs[pointer + 1][1]
+          diffs[pointer - 1, 1] = []
+          changes = true
+        elsif diffs[pointer][1][0...diffs[pointer + 1][1].length] ==
+              diffs[pointer + 1][1]
+          # Shift the edit over the next equality.
+          diffs[pointer - 1][1] += diffs[pointer + 1][1]
+          diffs[pointer][1] =
+            diffs[pointer][1][diffs[pointer + 1][1].length..-1] +
+            diffs[pointer + 1][1]
+          diffs[pointer + 1, 1] = []
+          changes = true
+        end
+      end
+      pointer += 1
+    end # while
+    # If shifts were made, the diff needs reordering and another shift sweep.
+    if changes
+      diff_cleanupMerge(diffs)
+    end
+  end
+
 end

@@ -130,4 +130,97 @@ class DiffTest < Test::Unit::TestCase
     assert_equal([[:diff_delete, lines]], diffs)
   end
 
+  def test_diff_cleanupMerge
+    # Cleanup a messy diff.
+    # Null case.
+    diffs = []
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal([], diffs)
+
+    # No change case.
+    diffs = [[:diff_equal, 'a'], [:diff_delete, 'b'], [:diff_insert, 'c']]
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal(
+      [[:diff_equal, 'a'], [:diff_delete, 'b'], [:diff_insert, 'c']],
+      diffs
+    )
+
+    # Merge equalities.
+    diffs = [[:diff_equal, 'a'], [:diff_equal, 'b'], [:diff_equal, 'c']]
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal([[:diff_equal, 'abc']], diffs)
+
+    # Merge deletions.
+    diffs = [[:diff_delete, 'a'], [:diff_delete, 'b'], [:diff_delete, 'c']]
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal([[:diff_delete, 'abc']], diffs)
+
+    # Merge insertions.
+    diffs = [[:diff_insert, 'a'], [:diff_insert, 'b'], [:diff_insert, 'c']]
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal([[:diff_insert, 'abc']], diffs)
+
+    # Merge interweave.
+    diffs = [
+      [:diff_delete, 'a'], [:diff_insert, 'b'], [:diff_delete, 'c'],
+      [:diff_insert, 'd'], [:diff_equal, 'e'], [:diff_equal, 'f']
+    ]
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal(
+      [[:diff_delete, 'ac'], [:diff_insert, 'bd'], [:diff_equal, 'ef']],
+      diffs
+    )
+
+    # Prefix and suffix detection.
+    diffs = [[:diff_delete, 'a'], [:diff_insert, 'abc'], [:diff_delete, 'dc']]
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal(
+      [
+        [:diff_equal, 'a'], [:diff_delete, 'd'], [:diff_insert, 'b'],
+        [:diff_equal, 'c']
+      ],
+      diffs
+    )
+
+    # Prefix and suffix detection with equalities.
+    diffs = [
+      [:diff_equal, 'x'], [:diff_delete, 'a'], [:diff_insert, 'abc'],
+      [:diff_delete, 'dc'], [:diff_equal, 'y']
+    ]
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal(
+      [
+        [:diff_equal, 'xa'], [:diff_delete, 'd'], [:diff_insert, 'b'],
+        [:diff_equal, 'cy']
+      ],
+      diffs
+    )
+
+    # Slide edit left.
+    diffs = [[:diff_equal, 'a'], [:diff_insert, 'ba'], [:diff_equal, 'c']]
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal([[:diff_insert, 'ab'], [:diff_equal, 'ac']], diffs)
+
+    # Slide edit right.
+    diffs = [[:diff_equal, 'c'], [:diff_insert, 'ab'], [:diff_equal, 'a']]
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal([[:diff_equal, 'ca'], [:diff_insert, 'ba']], diffs)
+
+    # Slide edit left recursive.
+    diffs = [
+      [:diff_equal, 'a'], [:diff_delete, 'b'], [:diff_equal, 'c'],
+      [:diff_delete, 'ac'], [:diff_equal, 'x']
+    ]
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal([[:diff_delete, 'abc'], [:diff_equal, 'acx']], diffs)
+
+    # Slide edit right recursive.
+    diffs = [
+      [:diff_equal, 'x'], [:diff_delete, 'ca'], [:diff_equal, 'c'],
+      [:diff_delete, 'b'], [:diff_equal, 'a']
+    ]
+    @dmp.diff_cleanupMerge(diffs)
+    assert_equal([[:diff_equal, 'xca'], [:diff_delete, 'cba']], diffs)
+  end
+
 end

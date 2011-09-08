@@ -94,9 +94,9 @@ class DiffPatchMatch
 
     # Truncate the longer string.
     if text1_length > text2_length
-      text1.slice!(0...-text2_length)
+      text1 = text1[-text2_length..-1]
     else
-      text2.slice!(text1_length..-1)
+      text2 = text2[0...text1_length]
     end
     text_length = [text1_length, text2_length].min
     # Quick check for the whole case.

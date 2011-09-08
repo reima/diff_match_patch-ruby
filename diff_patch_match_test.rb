@@ -29,4 +29,20 @@ class DiffTest < Test::Unit::TestCase
     # Whole case.
     assert_equal(4, @dmp.diff_commonSuffix('1234', 'xyz1234'))
   end
+
+  def test_diff_commonOverlap
+    # Detect any suffix/prefix overlap.
+    # Null case.
+    assert_equal(0, @dmp.diff_commonOverlap('', 'abcd'))
+
+    # Whole case.
+    assert_equal(3, @dmp.diff_commonOverlap('abc', 'abcd'))
+
+    # No overlap.
+    assert_equal(0, @dmp.diff_commonOverlap('123456', 'abcd'))
+
+    # Overlap.
+    assert_equal(3, @dmp.diff_commonOverlap('123456xxx', 'xxxabcd'))
+  end
+
 end

@@ -181,4 +181,37 @@ class DiffPatchMatch
     return [text1_a, text1_b, text2_a, text2_b, mid_common]
   end
 
+  # Split two texts into an array of strings.  Reduce the texts to a string of
+  # hashes where each Unicode character represents one line.
+  def diff_linesToChars(text1, text2)
+    line_array = ['']  # e.g. line_array[4] == "Hello\n"
+    line_hash = {}     # e.g. line_hash["Hello\n"] == 4
+
+    [text1, text2].map do |text|
+      # Split text into an array of strings.  Reduce the text to a string of
+      # hashes where each Unicode character represents one line.
+      chars = ''
+      # Walk the text, pulling out a substring for each line.
+      # text.split("\n") would would temporarily double our memory footprint.
+      # Modifying text would create many large strings to garbage collect.
+      line_start, line_end = 0, -1
+      while line_end < text.length - 1
+        line_end = text.index("\n", line_start)
+        if line_end.nil?
+          line_end = text.length - 1
+        end
+        line = text[line_start..line_end]
+        line_start = line_end + 1
+
+        if line_hash[line]
+          chars += line_hash[line].chr(Encoding::UTF_8)
+        else
+          chars += line_array.length.chr(Encoding::UTF_8)
+          line_hash[line] = line_array.length
+          line_array << line
+        end
+      end
+      chars
+    end << line_array
+  end
 end

@@ -86,4 +86,26 @@ class DiffTest < Test::Unit::TestCase
     assert_equal(nil, @dmp.diff_halfMatch('qHilloHelloHew', 'xHelloHeHulloy'))
   end
 
+  def test_diff_linesToChars
+    # Convert lines down to characters.
+    assert_equal(["\x01\x02\x01", "\x02\x01\x02", ['', "alpha\n", "beta\n"]],
+                 @dmp.diff_linesToChars("alpha\nbeta\nalpha\n", "beta\nalpha\nbeta\n"))
+
+    assert_equal(['', "\x01\x02\x03\x03", ['', "alpha\r\n", "beta\r\n", "\r\n"]],
+                 @dmp.diff_linesToChars('', "alpha\r\nbeta\r\n\r\n\r\n"))
+
+    assert_equal(["\x01", "\x02", ['', 'a', 'b']], @dmp.diff_linesToChars('a', 'b'));
+
+    # More than 256 to reveal any 8-bit limitations.
+    n = 300
+    line_list = (1..n).map {|x| x.to_s + "\n" }
+    char_list = (1..n).map {|x| x.chr(Encoding::UTF_8) }
+    assert_equal(n, line_list.length)
+    lines = line_list.join
+    chars = char_list.join
+    assert_equal(n, chars.length)
+    line_list.unshift('')
+    assert_equal([chars, '', line_list], @dmp.diff_linesToChars(lines, ''))
+  end
+
 end

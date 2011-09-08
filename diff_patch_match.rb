@@ -214,4 +214,13 @@ class DiffPatchMatch
       chars
     end << line_array
   end
+
+  # Rehydrate the text in a diff from a string of line hashes to real lines of
+  # text.
+  def diff_charsToLines(diffs, line_array)
+    diffs.each do |diff|
+      diff[1] = diff[1].chars.map{|c| line_array[c.ord]}.join
+    end
+  end
+
 end

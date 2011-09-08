@@ -108,4 +108,26 @@ class DiffTest < Test::Unit::TestCase
     assert_equal([chars, '', line_list], @dmp.diff_linesToChars(lines, ''))
   end
 
+  def test_diff_charsToLines
+    # Convert chars up to lines.
+    diffs = [[:diff_equal, "\x01\x02\x01"], [:diff_insert, "\x02\x01\x02"]]
+    @dmp.diff_charsToLines(diffs, ['', "alpha\n", "beta\n"])
+    assert_equal([[:diff_equal, "alpha\nbeta\nalpha\n"],
+                  [:diff_insert, "beta\nalpha\nbeta\n"]],
+                 diffs);
+    # More than 256 to reveal any 8-bit limitations.
+    n = 300
+    line_list = (1..n).map {|x| x.to_s + "\n" }
+    char_list = (1..n).map {|x| x.chr(Encoding::UTF_8) }
+    assert_equal(n, line_list.length)
+    lines = line_list.join
+    chars = char_list.join
+    assert_equal(n, chars.length)
+    line_list.unshift('')
+
+    diffs = [[:diff_delete, chars]]
+    @dmp.diff_charsToLines(diffs, line_list)
+    assert_equal([[:diff_delete, lines]], diffs)
+  end
+
 end

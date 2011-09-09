@@ -592,4 +592,21 @@ class DiffPatchMatch
     end
   end
 
+  # Convert a diff array into a pretty HTML report.
+  def diff_prettyHtml(diffs)
+    diffs.map do |diff|
+      op, data = diff
+      text = data.gsub('&', '&amp;').gsub('<', '&lt;').gsub('>', '&gt;').
+        gsub('\n', '&para;<br>')
+      case op
+        when :diff_insert
+          "<ins style=\"background:#e6ffe6;\">#{text}</ins>"
+        when :diff_delete
+          "<del style=\"background:#ffe6e6;\">#{text}</del>"
+        when :diff_equal
+          "<span>#{text}</span>"
+      end
+    end.join
+  end
+
 end

@@ -435,4 +435,13 @@ class DiffTest < Test::Unit::TestCase
     @dmp.diff_editCost = 4
   end
 
+  def test_diff_prettyHtml
+    # Pretty print.
+    diffs = [[:diff_equal, 'a\n'], [:diff_delete, '<B>b</B>'], [:diff_insert, 'c&d']]
+    assert_equal(
+      '<span>a&para;<br></span><del style="background:#ffe6e6;">&lt;B&gt;b&lt;/B&gt;</del><ins style="background:#e6ffe6;">c&amp;d</ins>',
+      @dmp.diff_prettyHtml(diffs)
+    )
+  end
+
 end

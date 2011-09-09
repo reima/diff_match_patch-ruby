@@ -399,4 +399,40 @@ class DiffTest < Test::Unit::TestCase
     )
   end
 
+  def test_diff_cleanupEfficiency
+    # Cleanup operationally trivial equalities.
+    @dmp.diff_editCost = 4
+    # Null case.
+    diffs = []
+    @dmp.diff_cleanupEfficiency(diffs)
+    assert_equal([], diffs)
+
+    # No elimination.
+    diffs = [[:diff_delete, 'ab'], [:diff_insert, '12'], [:diff_equal, 'wxyz'], [:diff_delete, 'cd'], [:diff_insert, '34']]
+    @dmp.diff_cleanupEfficiency(diffs)
+    assert_equal([[:diff_delete, 'ab'], [:diff_insert, '12'], [:diff_equal, 'wxyz'], [:diff_delete, 'cd'], [:diff_insert, '34']], diffs)
+
+    # Four-edit elimination.
+    diffs = [[:diff_delete, 'ab'], [:diff_insert, '12'], [:diff_equal, 'xyz'], [:diff_delete, 'cd'], [:diff_insert, '34']]
+    @dmp.diff_cleanupEfficiency(diffs)
+    assert_equal([[:diff_delete, 'abxyzcd'], [:diff_insert, '12xyz34']], diffs)
+
+    # Three-edit elimination.
+    diffs = [[:diff_insert, '12'], [:diff_equal, 'x'], [:diff_delete, 'cd'], [:diff_insert, '34']]
+    @dmp.diff_cleanupEfficiency(diffs)
+    assert_equal([[:diff_delete, 'xcd'], [:diff_insert, '12x34']], diffs)
+
+    # Backpass elimination.
+    diffs = [[:diff_delete, 'ab'], [:diff_insert, '12'], [:diff_equal, 'xy'], [:diff_insert, '34'], [:diff_equal, 'z'], [:diff_delete, 'cd'], [:diff_insert, '56']]
+    @dmp.diff_cleanupEfficiency(diffs)
+    assert_equal([[:diff_delete, 'abxyzcd'], [:diff_insert, '12xy34z56']], diffs)
+
+    # High cost elimination.
+    @dmp.diff_editCost = 5
+    diffs = [[:diff_delete, 'ab'], [:diff_insert, '12'], [:diff_equal, 'wxyz'], [:diff_delete, 'cd'], [:diff_insert, '34']]
+    @dmp.diff_cleanupEfficiency(diffs)
+    assert_equal([[:diff_delete, 'abwxyzcd'], [:diff_insert, '12wxyz34']], diffs)
+    @dmp.diff_editCost = 4
+  end
+
 end

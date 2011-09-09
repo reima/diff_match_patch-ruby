@@ -2,6 +2,7 @@ require 'abbrev'
 
 class DiffPatchMatch
   attr_accessor :diff_timeout
+  attr_accessor :diff_editCost
 
   def initialize
     # Defaults.
@@ -9,6 +10,8 @@ class DiffPatchMatch
 
     # Number of seconds to map a diff before giving up (0 for infinity).
     @diff_timeout = 1
+    # Cost of an empty edit operation in terms of edit characters.
+    @diff_editCost = 4
   end
 
   # Determine the common prefix of two strings.
@@ -515,7 +518,78 @@ class DiffPatchMatch
       end
       pointer += 1
     end
+  end
 
+  # Reduce the number of edits by eliminating operationally trivial equalities.
+  def diff_cleanupEfficiency(diffs)
+    changes = false
+    equalities = []  # Stack of indices where equalities are found.
+    last_equality = ''  # Always equal to equalities[-1][1]
+    pointer = 0  # Index of current position.
+    # Is there an insertion operation before the last equality.
+    pre_ins = false
+    # Is there a deletion operation before the last equality.
+    pre_del = false
+    # Is there an insertion operation after the last equality.
+    post_ins = false
+    # Is there a deletion operation after the last equality.
+    post_del = false
+    while pointer < diffs.length
+      if diffs[pointer][0] == :diff_equal # Equality found.
+        if diffs[pointer][1].length < diff_editCost &&
+           (post_ins || post_del)
+          # Candidate found.
+          equalities << pointer
+          pre_ins = post_ins
+          pre_del = post_del
+          last_equality = diffs[pointer][1]
+        else
+          # Not a candidate, and can never become one.
+          equalities.clear
+          last_equality = ''
+        end
+        post_ins = post_del = false
+      else # An insertion or deletion.
+        if diffs[pointer][0] == :diff_delete
+          post_del = true
+        else
+          post_ins = true
+        end
+        # Five types to be split:
+        # <ins>A</ins><del>B</del>XY<ins>C</ins><del>D</del>
+        # <ins>A</ins>X<ins>C</ins><del>D</del>
+        # <ins>A</ins><del>B</del>X<ins>C</ins>
+        # <ins>A</del>X<ins>C</ins><del>D</del>
+        # <ins>A</ins><del>B</del>X<del>C</del>
+        #/
+        if !last_equality.empty? &&
+           ((pre_ins && pre_del && post_ins && post_del) ||
+            ((last_equality.length < diff_editCost / 2) &&
+             [pre_ins, pre_del, post_ins, post_del].count(true) == 3))
+          # Duplicate record.
+          diffs[equalities[-1], 0] = [[:diff_delete, last_equality]]
+          # Change second copy to insert.
+          diffs[equalities[-1] + 1][0] = :diff_insert
+          equalities.pop # Throw away the equality we just deleted
+          last_equality = ''
+          if pre_ins && pre_del
+            # No changes made which could affect previous entry, keep going.
+            post_ins = post_del = true
+            equalities.clear
+          else
+            equalities.pop  # Throw away the previous equality.
+            pointer = equalities[-1] || -1
+            post_ins = post_del = false
+          end
+          changes = true
+        end
+      end
+      pointer += 1
+    end
+
+    if changes
+      diff_cleanupMerge(diffs)
+    end
   end
 
 end

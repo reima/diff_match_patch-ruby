@@ -609,4 +609,27 @@ class DiffPatchMatch
     end.join
   end
 
+  # Compute and return the source text (all equalities and deletions).
+  #
+  def diff_text1(diffs)
+    diffs.map do |diff|
+      if diff[0] == :diff_insert
+        ''
+      else
+        diff[1]
+      end
+    end.join
+  end
+
+  # Compute and return the destination text (all equalities and insertions).
+  def diff_text2(diffs)
+    diffs.map do |diff|
+      if diff[0] == :diff_delete
+        ''
+      else
+        diff[1]
+      end
+    end.join
+  end
+
 end

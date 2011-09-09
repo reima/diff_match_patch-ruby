@@ -444,4 +444,15 @@ class DiffTest < Test::Unit::TestCase
     )
   end
 
+  def test_diff_text
+    # Compute the source and destination texts.
+    diffs = [
+      [:diff_equal, 'jump'], [:diff_delete, 's'], [:diff_insert, 'ed'],
+      [:diff_equal, ' over '], [:diff_delete, 'the'], [:diff_insert, 'a'],
+      [:diff_equal, ' lazy']
+    ]
+    assert_equal('jumps over the lazy', @dmp.diff_text1(diffs))
+    assert_equal('jumped over a lazy', @dmp.diff_text2(diffs))
+  end
+
 end

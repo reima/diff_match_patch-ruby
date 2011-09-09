@@ -1,4 +1,4 @@
-require 'abbrev'
+require 'uri'
 
 class DiffPatchMatch
   attr_accessor :diff_timeout
@@ -630,6 +630,65 @@ class DiffPatchMatch
         diff[1]
       end
     end.join
+  end
+
+  # Crush the diff into an encoded string which describes the operations
+  # required to transform text1 into text2.
+  # E.g. =3\t-2\t+ing  -> Keep 3 chars, delete 2 chars, insert 'ing'.
+  # Operations are tab-separated.  Inserted text is escaped using %xx notation.
+  def diff_toDelta(diffs)
+    diffs.map do |diff|
+      case diff[0]
+        when :diff_insert
+          '+' + URI.encode(diff[1])
+        when :diff_delete
+          '-' + diff[1].length.to_s
+        when :diff_equal
+          '=' + diff[1].length.to_s
+      end
+    end.join("\t").gsub('%20', ' ').gsub('%23', '#')
+  end
+
+  # Given the original text1, and an encoded string which describes the
+  # operations required to transform text1 into text2, compute the full diff.
+  def diff_fromDelta(text1, delta)
+    diffs = []
+    pointer = 0 # Cursor in text1
+    delta.split("\t").each do |token|
+      # Each token begins with a one character parameter which specifies the
+      # operation of this token (delete, insert, equality).
+      param = token[1..-1]
+      case token[0]
+        when '+'
+          diffs << [
+            :diff_insert,
+            URI.decode(param.force_encoding(Encoding::UTF_8))
+          ]
+        when '-', '='
+          begin
+            n = Integer(param)
+            raise if n < 0
+            text = text1[pointer...(pointer += n)]
+            if token[0] == '='
+              diffs << [:diff_equal, text]
+            else
+              diffs << [:diff_delete, text]
+            end
+          rescue ArgumentError => e
+            raise ArgumentError.new("Invalid number in diff_fromDelta: #{param.inspect}")
+          end
+        else
+          # Blank tokens are ok (from a trailing \t).
+          # Anything else is an error.
+          if !token.empty?
+            raise ArgumentError.new("Invalid diff operation in diff_fromDelta: #{token.inspect}")
+          end
+      end
+    end
+    if pointer != text1.length
+      raise ArgumentError.new("Delta length (#{pointer}) does not equal source text length (#{text1.length})")
+    end
+    diffs
   end
 
 end

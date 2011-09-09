@@ -455,4 +455,61 @@ class DiffTest < Test::Unit::TestCase
     assert_equal('jumped over a lazy', @dmp.diff_text2(diffs))
   end
 
+  def test_diff_delta
+    # Convert a diff into delta string.
+    diffs = [
+      [:diff_equal, 'jump'], [:diff_delete, 's'], [:diff_insert, 'ed'],
+      [:diff_equal, ' over '], [:diff_delete, 'the'], [:diff_insert, 'a'],
+      [:diff_equal, ' lazy'], [:diff_insert, 'old dog']
+    ]
+    text1 = @dmp.diff_text1(diffs)
+    assert_equal('jumps over the lazy', text1)
+
+    delta = @dmp.diff_toDelta(diffs)
+    assert_equal("=4\t-1\t+ed\t=6\t-3\t+a\t=5\t+old dog", delta)
+
+    # Convert delta string into a diff.
+    assert_equal(diffs, @dmp.diff_fromDelta(text1, delta))
+
+    # Generates error (19 != 20).
+    assert_raise ArgumentError do
+      @dmp.diff_fromDelta(text1 + 'x', delta)
+    end
+
+    # Generates error (19 != 18).
+    assert_raise ArgumentError do
+      @dmp.diff_fromDelta(text1[1..-1], delta)
+    end
+
+    # Generates error (%c3%xy invalid Unicode).
+    #assert_raise ArgumentError do
+    #  @dmp.diff_fromDelta('', '+%c3%xy')
+    #end
+
+    # Test deltas with special characters.
+    diffs = [
+      [:diff_equal, "\u0680 \x00 \t %"], [:diff_delete, "\u0681 \x01 \n ^"],
+      [:diff_insert, "\u0682 \x02 \\ |"]
+    ]
+    text1 = @dmp.diff_text1(diffs)
+    assert_equal("\u0680 \x00 \t %\u0681 \x01 \n ^", text1)
+
+    delta = @dmp.diff_toDelta(diffs)
+    assert_equal("=7\t-7\t+%DA%82 %02 %5C %7C", delta)
+
+    # Convert delta string into a diff.
+    assert_equal(diffs, @dmp.diff_fromDelta(text1, delta))
+
+    # Verify pool of unchanged characters.
+    diffs = [[:diff_insert, "A-Z a-z 0-9 - _ . ! ~ * \' ( )  / ? : @ & = + $ , # "]]
+    text2 = @dmp.diff_text2(diffs)
+    assert_equal("A-Z a-z 0-9 - _ . ! ~ * \' ( )  / ? : @ & = + $ , # ", text2)
+
+    delta = @dmp.diff_toDelta(diffs)
+    assert_equal("+A-Z a-z 0-9 - _ . ! ~ * \' ( )  / ? : @ & = + $ , # ", delta)
+
+    # Convert delta string into a diff.
+    assert_equal(diffs, @dmp.diff_fromDelta('', delta))
+  end
+
 end

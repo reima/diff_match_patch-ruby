@@ -523,4 +523,16 @@ class DiffTest < Test::Unit::TestCase
     assert_equal(1, @dmp.diff_xIndex(diffs, 3))
   end
 
+  def test_diff_levenshtein
+    # Levenshtein with trailing equality.
+    diffs = [[:diff_delete, 'abc'], [:diff_insert, '1234'], [:diff_equal, 'xyz']]
+    assert_equal(4, @dmp.diff_levenshtein(diffs))
+    # Levenshtein with leading equality.
+    diffs = [[:diff_equal, 'xyz'], [:diff_delete, 'abc'], [:diff_insert, '1234']]
+    assert_equal(4, @dmp.diff_levenshtein(diffs))
+    # Levenshtein with middle equality.
+    diffs = [[:diff_delete, 'abc'], [:diff_equal, 'xyz'], [:diff_insert, '1234']]
+    assert_equal(7, @dmp.diff_levenshtein(diffs))
+  end
+
 end

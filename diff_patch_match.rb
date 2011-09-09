@@ -722,4 +722,26 @@ class DiffPatchMatch
     return last_chars2 + (loc - last_chars1)
   end
 
+  def diff_levenshtein(diffs)
+    levenshtein = 0
+    insertions = 0
+    deletions = 0
+    diffs.each do |diff|
+      op = diff[0]
+      data = diff[1]
+      case op
+        when :diff_insert
+          insertions += data.length
+        when :diff_delete
+          deletions += data.length
+        when :diff_equal
+          # A deletion and an insertion is one substitution.
+          levenshtein += [insertions, deletions].max
+          insertions = 0
+          deletions = 0
+      end
+    end
+    levenshtein + [insertions, deletions].max
+  end
+
 end

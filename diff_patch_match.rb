@@ -691,4 +691,35 @@ class DiffPatchMatch
     diffs
   end
 
+  # loc is a location in text1, compute and return the equivalent location in
+  # text2.
+  # e.g. 'The cat' vs 'The big cat', 1->1, 5->8
+  def diff_xIndex(diffs, loc)
+    chars1 = 0
+    chars2 = 0
+    last_chars1 = 0
+    last_chars2 = 0
+    x = diffs.index do |diff|
+      if diff[0] != :diff_insert # Equality or deletion.
+        chars1 += diff[1].length
+      end
+      if diff[0] != :diff_delete # Equality or insertion.
+        chars2 += diff[1].length
+      end
+      if chars1 > loc # Overshot the location.
+        true
+      else
+        last_chars1 = chars1
+        last_chars2 = chars2
+        false
+      end
+    end
+    # Was the location deleted?
+    if x && diffs[x][0] == :diff_delete
+      return last_chars2
+    end
+    # Add the remaining character length.
+    return last_chars2 + (loc - last_chars1)
+  end
+
 end

@@ -512,4 +512,15 @@ class DiffTest < Test::Unit::TestCase
     assert_equal(diffs, @dmp.diff_fromDelta('', delta))
   end
 
+  def test_diff_xIndex
+    # Translate a location in text1 to text2.
+    # Translation on equality.
+    diffs = [[:diff_delete, 'a'], [:diff_insert, '1234'], [:diff_equal, 'xyz']]
+    assert_equal(5, @dmp.diff_xIndex(diffs, 2))
+
+    # Translation on deletion.
+    diffs = [[:diff_equal, 'a'], [:diff_delete, '1234'], [:diff_equal, 'xyz']]
+    assert_equal(1, @dmp.diff_xIndex(diffs, 3))
+  end
+
 end

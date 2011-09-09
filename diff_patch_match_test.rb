@@ -535,4 +535,24 @@ class DiffTest < Test::Unit::TestCase
     assert_equal(7, @dmp.diff_levenshtein(diffs))
   end
 
+  def test_diff_bisect
+    # Normal.
+    a = 'cat'
+    b = 'map'
+    # Since the resulting diff hasn't been normalized, it would be ok if
+    # the insertion and deletion pairs are swapped.
+    # If the order changes, tweak this test as required.
+    diffs = [
+      [:diff_delete, 'c'], [:diff_insert, 'm'], [:diff_equal, 'a'],
+      [:diff_delete, 't'], [:diff_insert, 'p']
+    ]
+    assert_equal(diffs, @dmp.diff_bisect(a, b, nil))
+
+    # Timeout.
+    assert_equal(
+      [[:diff_delete, 'cat'], [:diff_insert, 'map']],
+      @dmp.diff_bisect(a, b, Time.now - 1)
+    )
+  end
+
 end

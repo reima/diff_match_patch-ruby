@@ -744,4 +744,229 @@ class DiffPatchMatch
     levenshtein + [insertions, deletions].max
   end
 
+  # Find the 'middle snake' of a diff, split the problem in two
+  # and return the recursively constructed diff.
+  # See Myers 1986 paper: An O(ND) Difference Algorithm and Its Variations.
+  def diff_bisect(text1, text2, deadline)
+    # Cache the text lengths to prevent multiple calls.
+    text1_length = text1.length
+    text2_length = text2.length
+    max_d = (text1_length + text2_length + 1) / 2
+    v_offset = max_d
+    v_length = 2 * max_d
+    v1 = Array.new(v_length, -1)
+    v2 = Array.new(v_length, -1)
+    v1[v_offset + 1] = 0
+    v2[v_offset + 1] = 0
+    delta = text1_length - text2_length
+    # If the total number of characters is odd, then the front path will collide
+    # with the reverse path.
+    front = (delta % 2 != 0)
+    # Offsets for start and end of k loop.
+    # Prevents mapping of space beyond the grid.
+    k1start = 0
+    k1end = 0
+    k2start = 0
+    k2end = 0
+    max_d.times do |d|
+      # Bail out if deadline is reached.
+      if deadline && Time.now >= deadline
+        break
+      end
+
+      # Walk the front path one step.
+      (-d + k1start).step(d - k1end, 2) do |k1|
+        k1_offset = v_offset + k1
+        if k1 == -d || k1 != d && v1[k1_offset - 1] < v1[k1_offset + 1]
+          x1 = v1[k1_offset + 1]
+        else
+          x1 = v1[k1_offset - 1] + 1
+        end
+        y1 = x1 - k1
+        while x1 < text1_length && y1 < text2_length && text1[x1] == text2[y1]
+          x1 += 1
+          y1 += 1
+        end
+        v1[k1_offset] = x1
+        if x1 > text1_length
+          # Ran off the right of the graph.
+          k1end += 2
+        elsif y1 > text2_length
+          # Ran off the bottom of the graph.
+          k1start += 2
+        elsif front
+          k2_offset = v_offset + delta - k1
+          if k2_offset >= 0 && k2_offset < v_length && v2[k2_offset] != -1
+            # Mirror x2 onto top-left coordinate system.
+            x2 = text1_length - v2[k2_offset]
+            if x1 >= x2
+              # Overlap detected.
+              return diff_bisectSplit(text1, text2, x1, y1, deadline)
+            end
+          end
+        end
+      end
+
+      # Walk the reverse path one step.
+      (-d + k2start).step(d - k2end, 2) do |k2|
+        k2_offset = v_offset + k2
+        if k2 == -d || k2 != d && v2[k2_offset - 1] < v2[k2_offset + 1]
+          x2 = v2[k2_offset + 1]
+        else
+          x2 = v2[k2_offset - 1] + 1
+        end
+        y2 = x2 - k2
+        while x2 < text1_length && y2 < text2_length && text1[-x2] == text2[-y2]
+          x2 += 1
+          y2 += 1
+        end
+        v2[k2_offset] = x2
+        if x2 > text1_length
+          # Ran off the left of the graph.
+          k2end += 2
+        elsif y2 > text2_length
+          # Ran off the top of the graph.
+          k2start += 2
+        elsif !front
+          k1_offset = v_offset + delta - k2
+          if k1_offset >= 0 && k1_offset < v_length && v1[k1_offset] != -1
+            x1 = v1[k1_offset]
+            y1 = v_offset + x1 - k1_offset
+            # Mirror x2 onto top-left coordinate system.
+            x2 = text1_length - x2
+            if x1 >= x2
+              # Overlap detected.
+              return diff_bisectSplit(text1, text2, x1, y1, deadline)
+            end
+          end
+        end
+      end
+    end
+    # Diff took too long and hit the deadline or
+    # number of diffs equals number of characters, no commonality at all.
+    return [[:diff_delete, text1], [:diff_insert, text2]]
+  end
+
+  # Given the location of the 'middle snake', split the diff in two parts
+  # and recurse.
+  def diff_bisectSplit(text1, text2, x, y, deadline)
+    text1a = text1[0...x]
+    text2a = text2[0...y]
+    text1b = text1[x..-1]
+    text2b = text2[y..-1]
+
+    # Compute both diffs serially.
+    diffs = diff_main(text1a, text2a, false, deadline)
+    diffsb = diff_main(text1b, text2b, false, deadline)
+
+    return diffs + diffsb
+  end
+
+  # Find the differences between two texts.  Simplifies the problem by stripping
+  # any common prefix or suffix off the texts before diffing.
+  def diff_main(text1, text2, checklines = nil, deadline = nil)
+    # Set a deadline by which time the diff must be complete.
+    if deadline.nil? && diff_timeout > 0
+      deadline = Time.now + diff_timeout
+    end
+
+    # Check for null inputs.
+    if text1.nil? || text2.nil?
+      raise ArgumentError.new('Null input. (diff_main)')
+    end
+
+    # Check for equality (speedup).
+    if text1 == text2
+      if !text1.empty?
+        return [[:diff_equal, text1]]
+      end
+      return []
+    end
+
+    # Default to checklines == true
+    checklines ||= true
+
+    # Trim off common prefix (speedup).
+    common_length = diff_commonPrefix(text1, text2)
+    if common_length != 0
+      common_prefix = text1[0...common_length]
+      text1 = text1[common_length..-1]
+      text2 = text2[common_length..-1]
+    end
+
+    # Trim off common suffix (speedup).
+    common_length = diff_commonSuffix(text1, text2)
+    if common_length != 0
+      common_suffix = text1[-common_length..-1]
+      text1 = text1[0...-common_length]
+      text2 = text2[0...-common_length]
+    end
+
+    # Compute the diff on the middle block.
+    diffs = diff_compute(text1, text2, checklines, deadline)
+
+    # Restore the prefix and suffix.
+    if common_prefix
+      diffs.unshift([:diff_equal, common_prefix])
+    end
+    if common_suffix
+      diffs.push([:diff_equal, common_suffix])
+    end
+    diff_cleanupMerge(diffs)
+    diffs
+  end
+
+  # Find the differences between two texts.  Assumes that the texts do not
+  # have any common prefix or suffix.
+  def diff_compute(text1, text2, checklines, deadline)
+    if text1.empty?
+      # Just add some text (speedup).
+      return [[:diff_insert, text2]]
+    end
+
+    if text2.empty?
+      # Just delete some text (speedup).
+      return [[:diff_delete, text1]]
+    end
+
+    shorttext, longtext = [text1, text2].sort_by(&:length)
+    i = longtext.index(shorttext)
+    if !i.nil?
+      # Shorter text is inside the longer text (speedup).
+      diffs = [[:diff_insert, longtext.substring[0...i]],
+               [:diff_equal, shorttext],
+               [:diff_insert, longtext.substring[(i + shorttext.length)..-1]]]
+      # Swap insertions for deletions if diff is reversed.
+      if text1.length > text2.length
+        diffs[0][0] = diffs[2][0] = :diff_delete
+      end
+      return diffs
+    end
+
+    if shorttext.length == 1
+      # Single character string.
+      # After the previous speedup, the character can't be an equality.
+      return [[:diff_delete, text1], [:diff_insert, text2]]
+    end
+    longtext = shorttext = nil  # Garbage collect.
+
+    # Check to see if the problem can be split in two.
+    hm = diff_halfMatch(text1, text2)
+    if hm
+      # A half-match was found, sort out the return data.
+      text1_a, text1_b, text2_a, text2_b, mid_common = hm
+      # Send both pairs off for separate processing.
+      diffs_a = diff_main(text1_a, text2_a, checklines, deadline)
+      diffs_b = diff_main(text1_b, text2_b, checklines, deadline)
+      # Merge the results.
+      return diffs_a + [[:diff_equal, mid_common]] + diffs_b
+    end
+
+    if checklines && text1.length > 100 && text2.length > 100
+      return this.diff_lineMode(text1, text2, deadline)
+    end
+
+    return diff_bisect(text1, text2, deadline)
+  end
+
 end

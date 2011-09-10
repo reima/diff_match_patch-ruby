@@ -110,10 +110,10 @@ class DiffTest < Test::Unit::TestCase
 
   def test_diff_charsToLines
     # Convert chars up to lines.
-    diffs = [[:diff_equal, "\x01\x02\x01"], [:diff_insert, "\x02\x01\x02"]]
+    diffs = [Diff.new(:equal, "\x01\x02\x01"), Diff.new(:insert, "\x02\x01\x02")]
     @dmp.diff_charsToLines(diffs, ['', "alpha\n", "beta\n"])
-    assert_equal([[:diff_equal, "alpha\nbeta\nalpha\n"],
-                  [:diff_insert, "beta\nalpha\nbeta\n"]],
+    assert_equal([Diff.new(:equal, "alpha\nbeta\nalpha\n"),
+                  Diff.new(:insert, "beta\nalpha\nbeta\n")],
                  diffs)
     # More than 256 to reveal any 8-bit limitations.
     n = 300
@@ -125,9 +125,9 @@ class DiffTest < Test::Unit::TestCase
     assert_equal(n, chars.length)
     line_list.unshift('')
 
-    diffs = [[:diff_delete, chars]]
+    diffs = [Diff.new(:delete, chars)]
     @dmp.diff_charsToLines(diffs, line_list)
-    assert_equal([[:diff_delete, lines]], diffs)
+    assert_equal([Diff.new(:delete, lines)], diffs)
   end
 
   def test_diff_cleanupMerge
@@ -138,89 +138,89 @@ class DiffTest < Test::Unit::TestCase
     assert_equal([], diffs)
 
     # No change case.
-    diffs = [[:diff_equal, 'a'], [:diff_delete, 'b'], [:diff_insert, 'c']]
+    diffs = [Diff.new(:equal, 'a'), Diff.new(:delete, 'b'), Diff.new(:insert, 'c')]
     @dmp.diff_cleanupMerge(diffs)
     assert_equal(
-      [[:diff_equal, 'a'], [:diff_delete, 'b'], [:diff_insert, 'c']],
+      [Diff.new(:equal, 'a'), Diff.new(:delete, 'b'), Diff.new(:insert, 'c')],
       diffs
     )
 
     # Merge equalities.
-    diffs = [[:diff_equal, 'a'], [:diff_equal, 'b'], [:diff_equal, 'c']]
+    diffs = [Diff.new(:equal, 'a'), Diff.new(:equal, 'b'), Diff.new(:equal, 'c')]
     @dmp.diff_cleanupMerge(diffs)
-    assert_equal([[:diff_equal, 'abc']], diffs)
+    assert_equal([Diff.new(:equal, 'abc')], diffs)
 
     # Merge deletions.
-    diffs = [[:diff_delete, 'a'], [:diff_delete, 'b'], [:diff_delete, 'c']]
+    diffs = [Diff.new(:delete, 'a'), Diff.new(:delete, 'b'), Diff.new(:delete, 'c')]
     @dmp.diff_cleanupMerge(diffs)
-    assert_equal([[:diff_delete, 'abc']], diffs)
+    assert_equal([Diff.new(:delete, 'abc')], diffs)
 
     # Merge insertions.
-    diffs = [[:diff_insert, 'a'], [:diff_insert, 'b'], [:diff_insert, 'c']]
+    diffs = [Diff.new(:insert, 'a'), Diff.new(:insert, 'b'), Diff.new(:insert, 'c')]
     @dmp.diff_cleanupMerge(diffs)
-    assert_equal([[:diff_insert, 'abc']], diffs)
+    assert_equal([Diff.new(:insert, 'abc')], diffs)
 
     # Merge interweave.
     diffs = [
-      [:diff_delete, 'a'], [:diff_insert, 'b'], [:diff_delete, 'c'],
-      [:diff_insert, 'd'], [:diff_equal, 'e'], [:diff_equal, 'f']
+      Diff.new(:delete, 'a'), Diff.new(:insert, 'b'), Diff.new(:delete, 'c'),
+      Diff.new(:insert, 'd'), Diff.new(:equal, 'e'), Diff.new(:equal, 'f')
     ]
     @dmp.diff_cleanupMerge(diffs)
     assert_equal(
-      [[:diff_delete, 'ac'], [:diff_insert, 'bd'], [:diff_equal, 'ef']],
+      [Diff.new(:delete, 'ac'), Diff.new(:insert, 'bd'), Diff.new(:equal, 'ef')],
       diffs
     )
 
     # Prefix and suffix detection.
-    diffs = [[:diff_delete, 'a'], [:diff_insert, 'abc'], [:diff_delete, 'dc']]
+    diffs = [Diff.new(:delete, 'a'), Diff.new(:insert, 'abc'), Diff.new(:delete, 'dc')]
     @dmp.diff_cleanupMerge(diffs)
     assert_equal(
       [
-        [:diff_equal, 'a'], [:diff_delete, 'd'], [:diff_insert, 'b'],
-        [:diff_equal, 'c']
+        Diff.new(:equal, 'a'), Diff.new(:delete, 'd'), Diff.new(:insert, 'b'),
+        Diff.new(:equal, 'c')
       ],
       diffs
     )
 
     # Prefix and suffix detection with equalities.
     diffs = [
-      [:diff_equal, 'x'], [:diff_delete, 'a'], [:diff_insert, 'abc'],
-      [:diff_delete, 'dc'], [:diff_equal, 'y']
+      Diff.new(:equal, 'x'), Diff.new(:delete, 'a'), Diff.new(:insert, 'abc'),
+      Diff.new(:delete, 'dc'), Diff.new(:equal, 'y')
     ]
     @dmp.diff_cleanupMerge(diffs)
     assert_equal(
       [
-        [:diff_equal, 'xa'], [:diff_delete, 'd'], [:diff_insert, 'b'],
-        [:diff_equal, 'cy']
+        Diff.new(:equal, 'xa'), Diff.new(:delete, 'd'), Diff.new(:insert, 'b'),
+        Diff.new(:equal, 'cy')
       ],
       diffs
     )
 
     # Slide edit left.
-    diffs = [[:diff_equal, 'a'], [:diff_insert, 'ba'], [:diff_equal, 'c']]
+    diffs = [Diff.new(:equal, 'a'), Diff.new(:insert, 'ba'), Diff.new(:equal, 'c')]
     @dmp.diff_cleanupMerge(diffs)
-    assert_equal([[:diff_insert, 'ab'], [:diff_equal, 'ac']], diffs)
+    assert_equal([Diff.new(:insert, 'ab'), Diff.new(:equal, 'ac')], diffs)
 
     # Slide edit right.
-    diffs = [[:diff_equal, 'c'], [:diff_insert, 'ab'], [:diff_equal, 'a']]
+    diffs = [Diff.new(:equal, 'c'), Diff.new(:insert, 'ab'), Diff.new(:equal, 'a')]
     @dmp.diff_cleanupMerge(diffs)
-    assert_equal([[:diff_equal, 'ca'], [:diff_insert, 'ba']], diffs)
+    assert_equal([Diff.new(:equal, 'ca'), Diff.new(:insert, 'ba')], diffs)
 
     # Slide edit left recursive.
     diffs = [
-      [:diff_equal, 'a'], [:diff_delete, 'b'], [:diff_equal, 'c'],
-      [:diff_delete, 'ac'], [:diff_equal, 'x']
+      Diff.new(:equal, 'a'), Diff.new(:delete, 'b'), Diff.new(:equal, 'c'),
+      Diff.new(:delete, 'ac'), Diff.new(:equal, 'x')
     ]
     @dmp.diff_cleanupMerge(diffs)
-    assert_equal([[:diff_delete, 'abc'], [:diff_equal, 'acx']], diffs)
+    assert_equal([Diff.new(:delete, 'abc'), Diff.new(:equal, 'acx')], diffs)
 
     # Slide edit right recursive.
     diffs = [
-      [:diff_equal, 'x'], [:diff_delete, 'ca'], [:diff_equal, 'c'],
-      [:diff_delete, 'b'], [:diff_equal, 'a']
+      Diff.new(:equal, 'x'), Diff.new(:delete, 'ca'), Diff.new(:equal, 'c'),
+      Diff.new(:delete, 'b'), Diff.new(:equal, 'a')
     ]
     @dmp.diff_cleanupMerge(diffs)
-    assert_equal([[:diff_equal, 'xca'], [:diff_delete, 'cba']], diffs)
+    assert_equal([Diff.new(:equal, 'xca'), Diff.new(:delete, 'cba')], diffs)
   end
 
   def test_diff_cleanupSemanticLossless
@@ -232,69 +232,69 @@ class DiffTest < Test::Unit::TestCase
 
     # Blank lines.
     diffs = [
-      [:diff_equal, "AAA\r\n\r\nBBB"], [:diff_insert, "\r\nDDD\r\n\r\nBBB"],
-      [:diff_equal, "\r\nEEE"]
+      Diff.new(:equal, "AAA\r\n\r\nBBB"), Diff.new(:insert, "\r\nDDD\r\n\r\nBBB"),
+      Diff.new(:equal, "\r\nEEE")
     ]
     @dmp.diff_cleanupSemanticLossless(diffs)
     assert_equal(
       [
-        [:diff_equal, "AAA\r\n\r\n"], [:diff_insert, "BBB\r\nDDD\r\n\r\n"],
-        [:diff_equal, "BBB\r\nEEE"]
+        Diff.new(:equal, "AAA\r\n\r\n"), Diff.new(:insert, "BBB\r\nDDD\r\n\r\n"),
+        Diff.new(:equal, "BBB\r\nEEE")
       ],
       diffs
     )
 
     # Line boundaries.
     diffs = [
-      [:diff_equal, "AAA\r\nBBB"], [:diff_insert, " DDD\r\nBBB"],
-      [:diff_equal, " EEE"]
+      Diff.new(:equal, "AAA\r\nBBB"), Diff.new(:insert, " DDD\r\nBBB"),
+      Diff.new(:equal, " EEE")
     ]
     @dmp.diff_cleanupSemanticLossless(diffs)
     assert_equal(
       [
-        [:diff_equal, "AAA\r\n"], [:diff_insert, "BBB DDD\r\n"],
-        [:diff_equal, "BBB EEE"]
+        Diff.new(:equal, "AAA\r\n"), Diff.new(:insert, "BBB DDD\r\n"),
+        Diff.new(:equal, "BBB EEE")
       ],
       diffs
     )
 
     # Word boundaries.
     diffs = [
-      [:diff_equal, 'The c'], [:diff_insert, 'ow and the c'],
-      [:diff_equal, 'at.']
+      Diff.new(:equal, 'The c'), Diff.new(:insert, 'ow and the c'),
+      Diff.new(:equal, 'at.')
     ]
     @dmp.diff_cleanupSemanticLossless(diffs)
     assert_equal(
       [
-        [:diff_equal, 'The '], [:diff_insert, 'cow and the '],
-        [:diff_equal, 'cat.']
+        Diff.new(:equal, 'The '), Diff.new(:insert, 'cow and the '),
+        Diff.new(:equal, 'cat.')
       ],
       diffs
     )
 
     # Alphanumeric boundaries.
     diffs = [
-      [:diff_equal, 'The-c'], [:diff_insert, 'ow-and-the-c'],
-      [:diff_equal, 'at.']
+      Diff.new(:equal, 'The-c'), Diff.new(:insert, 'ow-and-the-c'),
+      Diff.new(:equal, 'at.')
     ]
     @dmp.diff_cleanupSemanticLossless(diffs)
     assert_equal(
       [
-        [:diff_equal, 'The-'], [:diff_insert, 'cow-and-the-'],
-        [:diff_equal, 'cat.']
+        Diff.new(:equal, 'The-'), Diff.new(:insert, 'cow-and-the-'),
+        Diff.new(:equal, 'cat.')
       ],
       diffs
     )
 
     # Hitting the start.
-    diffs = [[:diff_equal, 'a'], [:diff_delete, 'a'], [:diff_equal, 'ax']]
+    diffs = [Diff.new(:equal, 'a'), Diff.new(:delete, 'a'), Diff.new(:equal, 'ax')]
     @dmp.diff_cleanupSemanticLossless(diffs)
-    assert_equal([[:diff_delete, 'a'], [:diff_equal, 'aax']], diffs)
+    assert_equal([Diff.new(:delete, 'a'), Diff.new(:equal, 'aax')], diffs)
 
     # Hitting the end.
-    diffs = [[:diff_equal, 'xa'], [:diff_delete, 'a'], [:diff_equal, 'a']]
+    diffs = [Diff.new(:equal, 'xa'), Diff.new(:delete, 'a'), Diff.new(:equal, 'a')]
     @dmp.diff_cleanupSemanticLossless(diffs)
-    assert_equal([[:diff_equal, 'xaa'], [:diff_delete, 'a']], diffs)
+    assert_equal([Diff.new(:equal, 'xaa'), Diff.new(:delete, 'a')], diffs)
   end
 
 
@@ -307,93 +307,93 @@ class DiffTest < Test::Unit::TestCase
 
     # No elimination #1.
     diffs = [
-      [:diff_delete, 'ab'], [:diff_insert, 'cd'], [:diff_equal, '12'],
-      [:diff_delete, 'e']
+      Diff.new(:delete, 'ab'), Diff.new(:insert, 'cd'), Diff.new(:equal, '12'),
+      Diff.new(:delete, 'e')
     ]
     @dmp.diff_cleanupSemantic(diffs)
     assert_equal(
       [
-        [:diff_delete, 'ab'], [:diff_insert, 'cd'], [:diff_equal, '12'],
-        [:diff_delete, 'e']
+        Diff.new(:delete, 'ab'), Diff.new(:insert, 'cd'), Diff.new(:equal, '12'),
+        Diff.new(:delete, 'e')
       ],
       diffs
     )
 
     # No elimination #2.
     diffs = [
-      [:diff_delete, 'abc'], [:diff_insert, 'ABC'], [:diff_equal, '1234'],
-      [:diff_delete, 'wxyz']
+      Diff.new(:delete, 'abc'), Diff.new(:insert, 'ABC'), Diff.new(:equal, '1234'),
+      Diff.new(:delete, 'wxyz')
     ]
     @dmp.diff_cleanupSemantic(diffs)
     assert_equal(
       [
-        [:diff_delete, 'abc'], [:diff_insert, 'ABC'], [:diff_equal, '1234'],
-        [:diff_delete, 'wxyz']
+        Diff.new(:delete, 'abc'), Diff.new(:insert, 'ABC'), Diff.new(:equal, '1234'),
+        Diff.new(:delete, 'wxyz')
       ],
       diffs
     )
 
     # Simple elimination.
-    diffs = [[:diff_delete, 'a'], [:diff_equal, 'b'], [:diff_delete, 'c']]
+    diffs = [Diff.new(:delete, 'a'), Diff.new(:equal, 'b'), Diff.new(:delete, 'c')]
     @dmp.diff_cleanupSemantic(diffs)
-    assert_equal([[:diff_delete, 'abc'], [:diff_insert, 'b']], diffs)
+    assert_equal([Diff.new(:delete, 'abc'), Diff.new(:insert, 'b')], diffs)
 
     # Backpass elimination.
     diffs = [
-      [:diff_delete, 'ab'], [:diff_equal, 'cd'], [:diff_delete, 'e'],
-      [:diff_equal, 'f'], [:diff_insert, 'g']
+      Diff.new(:delete, 'ab'), Diff.new(:equal, 'cd'), Diff.new(:delete, 'e'),
+      Diff.new(:equal, 'f'), Diff.new(:insert, 'g')
     ]
     @dmp.diff_cleanupSemantic(diffs)
-    assert_equal([[:diff_delete, 'abcdef'], [:diff_insert, 'cdfg']], diffs)
+    assert_equal([Diff.new(:delete, 'abcdef'), Diff.new(:insert, 'cdfg')], diffs)
 
     # Multiple eliminations.
     diffs = [
-      [:diff_insert, '1'], [:diff_equal, 'A'], [:diff_delete, 'B'],
-      [:diff_insert, '2'], [:diff_equal, '_'], [:diff_insert, '1'],
-      [:diff_equal, 'A'], [:diff_delete, 'B'], [:diff_insert, '2']
+      Diff.new(:insert, '1'), Diff.new(:equal, 'A'), Diff.new(:delete, 'B'),
+      Diff.new(:insert, '2'), Diff.new(:equal, '_'), Diff.new(:insert, '1'),
+      Diff.new(:equal, 'A'), Diff.new(:delete, 'B'), Diff.new(:insert, '2')
     ]
     @dmp.diff_cleanupSemantic(diffs)
-    assert_equal([[:diff_delete, 'AB_AB'], [:diff_insert, '1A2_1A2']], diffs)
+    assert_equal([Diff.new(:delete, 'AB_AB'), Diff.new(:insert, '1A2_1A2')], diffs)
 
     # Word boundaries.
     diffs = [
-      [:diff_equal, 'The c'], [:diff_delete, 'ow and the c'],
-      [:diff_equal, 'at.']
+      Diff.new(:equal, 'The c'), Diff.new(:delete, 'ow and the c'),
+      Diff.new(:equal, 'at.')
     ]
     @dmp.diff_cleanupSemantic(diffs)
     assert_equal(
       [
-        [:diff_equal, 'The '], [:diff_delete, 'cow and the '],
-        [:diff_equal, 'cat.']
+        Diff.new(:equal, 'The '), Diff.new(:delete, 'cow and the '),
+        Diff.new(:equal, 'cat.')
       ],
       diffs
     )
 
     # No overlap elimination.
     # TODO: This test is in the JavaScript test suite, yet it should fail...!?
-    #diffs = [[:diff_delete, 'abcxx'], [:diff_insert, 'xxdef']]
+    #diffs = [Diff.new(:delete, 'abcxx'), Diff.new(:insert, 'xxdef')]
     #@dmp.diff_cleanupSemantic(diffs)
-    #assert_equal([[:diff_delete, 'abcxx'], [:diff_insert, 'xxdef']], diffs)
+    #assert_equal([Diff.new(:delete, 'abcxx'), Diff.new(:insert, 'xxdef')], diffs)
 
     # Overlap elimination.
-    diffs = [[:diff_delete, 'abcxxx'], [:diff_insert, 'xxxdef']]
+    diffs = [Diff.new(:delete, 'abcxxx'), Diff.new(:insert, 'xxxdef')]
     @dmp.diff_cleanupSemantic(diffs)
     assert_equal(
-      [[:diff_delete, 'abc'], [:diff_equal, 'xxx'], [:diff_insert, 'def']],
+      [Diff.new(:delete, 'abc'), Diff.new(:equal, 'xxx'), Diff.new(:insert, 'def')],
       diffs
     )
 
     # Two overlap eliminations.
     diffs = [
-      [:diff_delete, 'abcd1212'], [:diff_insert, '1212efghi'],
-      [:diff_equal, '----'], [:diff_delete, 'A3'], [:diff_insert, '3BC']
+      Diff.new(:delete, 'abcd1212'), Diff.new(:insert, '1212efghi'),
+      Diff.new(:equal, '----'), Diff.new(:delete, 'A3'), Diff.new(:insert, '3BC')
     ]
     @dmp.diff_cleanupSemantic(diffs)
     assert_equal(
       [
-        [:diff_delete, 'abcd'], [:diff_equal, '1212'], [:diff_insert, 'efghi'],
-        [:diff_equal, '----'], [:diff_delete, 'A'], [:diff_equal, '3'],
-        [:diff_insert, 'BC']
+        Diff.new(:delete, 'abcd'), Diff.new(:equal, '1212'), Diff.new(:insert, 'efghi'),
+        Diff.new(:equal, '----'), Diff.new(:delete, 'A'), Diff.new(:equal, '3'),
+        Diff.new(:insert, 'BC')
       ],
       diffs
     )
@@ -408,36 +408,36 @@ class DiffTest < Test::Unit::TestCase
     assert_equal([], diffs)
 
     # No elimination.
-    diffs = [[:diff_delete, 'ab'], [:diff_insert, '12'], [:diff_equal, 'wxyz'], [:diff_delete, 'cd'], [:diff_insert, '34']]
+    diffs = [Diff.new(:delete, 'ab'), Diff.new(:insert, '12'), Diff.new(:equal, 'wxyz'), Diff.new(:delete, 'cd'), Diff.new(:insert, '34')]
     @dmp.diff_cleanupEfficiency(diffs)
-    assert_equal([[:diff_delete, 'ab'], [:diff_insert, '12'], [:diff_equal, 'wxyz'], [:diff_delete, 'cd'], [:diff_insert, '34']], diffs)
+    assert_equal([Diff.new(:delete, 'ab'), Diff.new(:insert, '12'), Diff.new(:equal, 'wxyz'), Diff.new(:delete, 'cd'), Diff.new(:insert, '34')], diffs)
 
     # Four-edit elimination.
-    diffs = [[:diff_delete, 'ab'], [:diff_insert, '12'], [:diff_equal, 'xyz'], [:diff_delete, 'cd'], [:diff_insert, '34']]
+    diffs = [Diff.new(:delete, 'ab'), Diff.new(:insert, '12'), Diff.new(:equal, 'xyz'), Diff.new(:delete, 'cd'), Diff.new(:insert, '34')]
     @dmp.diff_cleanupEfficiency(diffs)
-    assert_equal([[:diff_delete, 'abxyzcd'], [:diff_insert, '12xyz34']], diffs)
+    assert_equal([Diff.new(:delete, 'abxyzcd'), Diff.new(:insert, '12xyz34')], diffs)
 
     # Three-edit elimination.
-    diffs = [[:diff_insert, '12'], [:diff_equal, 'x'], [:diff_delete, 'cd'], [:diff_insert, '34']]
+    diffs = [Diff.new(:insert, '12'), Diff.new(:equal, 'x'), Diff.new(:delete, 'cd'), Diff.new(:insert, '34')]
     @dmp.diff_cleanupEfficiency(diffs)
-    assert_equal([[:diff_delete, 'xcd'], [:diff_insert, '12x34']], diffs)
+    assert_equal([Diff.new(:delete, 'xcd'), Diff.new(:insert, '12x34')], diffs)
 
     # Backpass elimination.
-    diffs = [[:diff_delete, 'ab'], [:diff_insert, '12'], [:diff_equal, 'xy'], [:diff_insert, '34'], [:diff_equal, 'z'], [:diff_delete, 'cd'], [:diff_insert, '56']]
+    diffs = [Diff.new(:delete, 'ab'), Diff.new(:insert, '12'), Diff.new(:equal, 'xy'), Diff.new(:insert, '34'), Diff.new(:equal, 'z'), Diff.new(:delete, 'cd'), Diff.new(:insert, '56')]
     @dmp.diff_cleanupEfficiency(diffs)
-    assert_equal([[:diff_delete, 'abxyzcd'], [:diff_insert, '12xy34z56']], diffs)
+    assert_equal([Diff.new(:delete, 'abxyzcd'), Diff.new(:insert, '12xy34z56')], diffs)
 
     # High cost elimination.
     @dmp.diff_editCost = 5
-    diffs = [[:diff_delete, 'ab'], [:diff_insert, '12'], [:diff_equal, 'wxyz'], [:diff_delete, 'cd'], [:diff_insert, '34']]
+    diffs = [Diff.new(:delete, 'ab'), Diff.new(:insert, '12'), Diff.new(:equal, 'wxyz'), Diff.new(:delete, 'cd'), Diff.new(:insert, '34')]
     @dmp.diff_cleanupEfficiency(diffs)
-    assert_equal([[:diff_delete, 'abwxyzcd'], [:diff_insert, '12wxyz34']], diffs)
+    assert_equal([Diff.new(:delete, 'abwxyzcd'), Diff.new(:insert, '12wxyz34')], diffs)
     @dmp.diff_editCost = 4
   end
 
   def test_diff_prettyHtml
     # Pretty print.
-    diffs = [[:diff_equal, 'a\n'], [:diff_delete, '<B>b</B>'], [:diff_insert, 'c&d']]
+    diffs = [Diff.new(:equal, 'a\n'), Diff.new(:delete, '<B>b</B>'), Diff.new(:insert, 'c&d')]
     assert_equal(
       '<span>a&para;<br></span><del style="background:#ffe6e6;">&lt;B&gt;b&lt;/B&gt;</del><ins style="background:#e6ffe6;">c&amp;d</ins>',
       @dmp.diff_prettyHtml(diffs)
@@ -447,9 +447,9 @@ class DiffTest < Test::Unit::TestCase
   def test_diff_text
     # Compute the source and destination texts.
     diffs = [
-      [:diff_equal, 'jump'], [:diff_delete, 's'], [:diff_insert, 'ed'],
-      [:diff_equal, ' over '], [:diff_delete, 'the'], [:diff_insert, 'a'],
-      [:diff_equal, ' lazy']
+      Diff.new(:equal, 'jump'), Diff.new(:delete, 's'), Diff.new(:insert, 'ed'),
+      Diff.new(:equal, ' over '), Diff.new(:delete, 'the'), Diff.new(:insert, 'a'),
+      Diff.new(:equal, ' lazy')
     ]
     assert_equal('jumps over the lazy', @dmp.diff_text1(diffs))
     assert_equal('jumped over a lazy', @dmp.diff_text2(diffs))
@@ -458,9 +458,9 @@ class DiffTest < Test::Unit::TestCase
   def test_diff_delta
     # Convert a diff into delta string.
     diffs = [
-      [:diff_equal, 'jump'], [:diff_delete, 's'], [:diff_insert, 'ed'],
-      [:diff_equal, ' over '], [:diff_delete, 'the'], [:diff_insert, 'a'],
-      [:diff_equal, ' lazy'], [:diff_insert, 'old dog']
+      Diff.new(:equal, 'jump'), Diff.new(:delete, 's'), Diff.new(:insert, 'ed'),
+      Diff.new(:equal, ' over '), Diff.new(:delete, 'the'), Diff.new(:insert, 'a'),
+      Diff.new(:equal, ' lazy'), Diff.new(:insert, 'old dog')
     ]
     text1 = @dmp.diff_text1(diffs)
     assert_equal('jumps over the lazy', text1)
@@ -488,8 +488,8 @@ class DiffTest < Test::Unit::TestCase
 
     # Test deltas with special characters.
     diffs = [
-      [:diff_equal, "\u0680 \x00 \t %"], [:diff_delete, "\u0681 \x01 \n ^"],
-      [:diff_insert, "\u0682 \x02 \\ |"]
+      Diff.new(:equal, "\u0680 \x00 \t %"), Diff.new(:delete, "\u0681 \x01 \n ^"),
+      Diff.new(:insert, "\u0682 \x02 \\ |")
     ]
     text1 = @dmp.diff_text1(diffs)
     assert_equal("\u0680 \x00 \t %\u0681 \x01 \n ^", text1)
@@ -501,7 +501,7 @@ class DiffTest < Test::Unit::TestCase
     assert_equal(diffs, @dmp.diff_fromDelta(text1, delta))
 
     # Verify pool of unchanged characters.
-    diffs = [[:diff_insert, "A-Z a-z 0-9 - _ . ! ~ * \' ( )  / ? : @ & = + $ , # "]]
+    diffs = [Diff.new(:insert, "A-Z a-z 0-9 - _ . ! ~ * \' ( )  / ? : @ & = + $ , # ")]
     text2 = @dmp.diff_text2(diffs)
     assert_equal("A-Z a-z 0-9 - _ . ! ~ * \' ( )  / ? : @ & = + $ , # ", text2)
 
@@ -515,23 +515,23 @@ class DiffTest < Test::Unit::TestCase
   def test_diff_xIndex
     # Translate a location in text1 to text2.
     # Translation on equality.
-    diffs = [[:diff_delete, 'a'], [:diff_insert, '1234'], [:diff_equal, 'xyz']]
+    diffs = [Diff.new(:delete, 'a'), Diff.new(:insert, '1234'), Diff.new(:equal, 'xyz')]
     assert_equal(5, @dmp.diff_xIndex(diffs, 2))
 
     # Translation on deletion.
-    diffs = [[:diff_equal, 'a'], [:diff_delete, '1234'], [:diff_equal, 'xyz']]
+    diffs = [Diff.new(:equal, 'a'), Diff.new(:delete, '1234'), Diff.new(:equal, 'xyz')]
     assert_equal(1, @dmp.diff_xIndex(diffs, 3))
   end
 
   def test_diff_levenshtein
     # Levenshtein with trailing equality.
-    diffs = [[:diff_delete, 'abc'], [:diff_insert, '1234'], [:diff_equal, 'xyz']]
+    diffs = [Diff.new(:delete, 'abc'), Diff.new(:insert, '1234'), Diff.new(:equal, 'xyz')]
     assert_equal(4, @dmp.diff_levenshtein(diffs))
     # Levenshtein with leading equality.
-    diffs = [[:diff_equal, 'xyz'], [:diff_delete, 'abc'], [:diff_insert, '1234']]
+    diffs = [Diff.new(:equal, 'xyz'), Diff.new(:delete, 'abc'), Diff.new(:insert, '1234')]
     assert_equal(4, @dmp.diff_levenshtein(diffs))
     # Levenshtein with middle equality.
-    diffs = [[:diff_delete, 'abc'], [:diff_equal, 'xyz'], [:diff_insert, '1234']]
+    diffs = [Diff.new(:delete, 'abc'), Diff.new(:equal, 'xyz'), Diff.new(:insert, '1234')]
     assert_equal(7, @dmp.diff_levenshtein(diffs))
   end
 
@@ -543,14 +543,14 @@ class DiffTest < Test::Unit::TestCase
     # the insertion and deletion pairs are swapped.
     # If the order changes, tweak this test as required.
     diffs = [
-      [:diff_delete, 'c'], [:diff_insert, 'm'], [:diff_equal, 'a'],
-      [:diff_delete, 't'], [:diff_insert, 'p']
+      Diff.new(:delete, 'c'), Diff.new(:insert, 'm'), Diff.new(:equal, 'a'),
+      Diff.new(:delete, 't'), Diff.new(:insert, 'p')
     ]
     assert_equal(diffs, @dmp.diff_bisect(a, b, nil))
 
     # Timeout.
     assert_equal(
-      [[:diff_delete, 'cat'], [:diff_insert, 'map']],
+      [Diff.new(:delete, 'cat'), Diff.new(:insert, 'map')],
       @dmp.diff_bisect(a, b, Time.now - 1)
     )
   end
@@ -561,25 +561,25 @@ class DiffTest < Test::Unit::TestCase
     assert_equal([], @dmp.diff_main('', '', false))
 
     # Equality.
-    assert_equal([[:diff_equal, 'abc']], @dmp.diff_main('abc', 'abc', false))
+    assert_equal([Diff.new(:equal, 'abc')], @dmp.diff_main('abc', 'abc', false))
 
     # Simple insertion.
     assert_equal(
-      [[:diff_equal, 'ab'], [:diff_insert, '123'], [:diff_equal, 'c']],
+      [Diff.new(:equal, 'ab'), Diff.new(:insert, '123'), Diff.new(:equal, 'c')],
       @dmp.diff_main('abc', 'ab123c', false)
     )
 
     # Simple deletion.
     assert_equal(
-      [[:diff_equal, 'a'], [:diff_delete, '123'], [:diff_equal, 'bc']],
+      [Diff.new(:equal, 'a'), Diff.new(:delete, '123'), Diff.new(:equal, 'bc')],
       @dmp.diff_main('a123bc', 'abc', false)
     )
 
     # Two insertions.
     assert_equal(
       [
-        [:diff_equal, 'a'], [:diff_insert, '123'], [:diff_equal, 'b'],
-        [:diff_insert, '456'], [:diff_equal, 'c']
+        Diff.new(:equal, 'a'), Diff.new(:insert, '123'), Diff.new(:equal, 'b'),
+        Diff.new(:insert, '456'), Diff.new(:equal, 'c')
       ],
       @dmp.diff_main('abc', 'a123b456c', false)
     )
@@ -587,8 +587,8 @@ class DiffTest < Test::Unit::TestCase
     # Two deletions.
     assert_equal(
       [
-        [:diff_equal, 'a'], [:diff_delete, '123'], [:diff_equal, 'b'],
-        [:diff_delete, '456'], [:diff_equal, 'c']
+        Diff.new(:equal, 'a'), Diff.new(:delete, '123'), Diff.new(:equal, 'b'),
+        Diff.new(:delete, '456'), Diff.new(:equal, 'c')
       ],
       @dmp.diff_main('a123b456c', 'abc', false)
     )
@@ -598,23 +598,23 @@ class DiffTest < Test::Unit::TestCase
     @dmp.diff_timeout = 0
     # Simple cases.
     assert_equal(
-      [[:diff_delete, 'a'], [:diff_insert, 'b']],
+      [Diff.new(:delete, 'a'), Diff.new(:insert, 'b')],
       @dmp.diff_main('a', 'b', false)
     )
 
     assert_equal(
       [
-        [:diff_delete, 'Apple'], [:diff_insert, 'Banana'],
-        [:diff_equal, 's are a'], [:diff_insert, 'lso'],
-        [:diff_equal, ' fruit.']
+        Diff.new(:delete, 'Apple'), Diff.new(:insert, 'Banana'),
+        Diff.new(:equal, 's are a'), Diff.new(:insert, 'lso'),
+        Diff.new(:equal, ' fruit.')
       ],
       @dmp.diff_main('Apples are a fruit.', 'Bananas are also fruit.', false)
     )
 
     assert_equal(
       [
-        [:diff_delete, 'a'], [:diff_insert, "\u0680"], [:diff_equal, 'x'],
-        [:diff_delete, "\t"], [:diff_insert, "\0"]
+        Diff.new(:delete, 'a'), Diff.new(:insert, "\u0680"), Diff.new(:equal, 'x'),
+        Diff.new(:delete, "\t"), Diff.new(:insert, "\0")
       ],
       @dmp.diff_main("ax\t", "\u0680x\0", false)
     )
@@ -622,23 +622,23 @@ class DiffTest < Test::Unit::TestCase
     # Overlaps.
     assert_equal(
       [
-        [:diff_delete, '1'], [:diff_equal, 'a'], [:diff_delete, 'y'],
-        [:diff_equal, 'b'], [:diff_delete, '2'], [:diff_insert, 'xab']
+        Diff.new(:delete, '1'), Diff.new(:equal, 'a'), Diff.new(:delete, 'y'),
+        Diff.new(:equal, 'b'), Diff.new(:delete, '2'), Diff.new(:insert, 'xab')
       ],
       @dmp.diff_main('1ayb2', 'abxab', false)
     )
 
     assert_equal(
-      [[:diff_insert, 'xaxcx'], [:diff_equal, 'abc'], [:diff_delete, 'y']],
+      [Diff.new(:insert, 'xaxcx'), Diff.new(:equal, 'abc'), Diff.new(:delete, 'y')],
       @dmp.diff_main('abcy', 'xaxcxabc', false)
     )
 
     assert_equal(
       [
-        [:diff_delete, 'ABCD'], [:diff_equal, 'a'], [:diff_delete, '='],
-        [:diff_insert, '-'], [:diff_equal, 'bcd'], [:diff_delete, '='],
-        [:diff_insert, '-'], [:diff_equal, 'efghijklmnopqrs'],
-        [:diff_delete, 'EFGHIJKLMNOefg']
+        Diff.new(:delete, 'ABCD'), Diff.new(:equal, 'a'), Diff.new(:delete, '='),
+        Diff.new(:insert, '-'), Diff.new(:equal, 'bcd'), Diff.new(:delete, '='),
+        Diff.new(:insert, '-'), Diff.new(:equal, 'efghijklmnopqrs'),
+        Diff.new(:delete, 'EFGHIJKLMNOefg')
       ],
       @dmp.diff_main(
         'ABCDa=bcd=efghijklmnopqrsEFGHIJKLMNOefg',
@@ -650,8 +650,8 @@ class DiffTest < Test::Unit::TestCase
     # Large equality.
     assert_equal(
       [
-        [:diff_insert, ' '], [:diff_equal, 'a'], [:diff_insert, 'nd'],
-        [:diff_equal, ' [[Pennsylvania]]'], [:diff_delete, ' and [[New']
+        Diff.new(:insert, ' '), Diff.new(:equal, 'a'), Diff.new(:insert, 'nd'),
+        Diff.new(:equal, ' [[Pennsylvania]]'), Diff.new(:delete, ' and [[New')
       ],
       @dmp.diff_main(
         'a [[Pennsylvania]] and [[New', ' and [[Pennsylvania]]', false

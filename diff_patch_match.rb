@@ -44,6 +44,7 @@ class DiffPatchMatch
 
     # Binary search.
     # Performance analysis: http://neil.fraser.name/news/2007/10/09/
+    # See diff_patch_match_bench.rb
     pointer_min = 0
     pointer_max = [text1.length, text2.length].min
     pointer_mid = pointer_max

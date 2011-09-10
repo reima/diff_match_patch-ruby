@@ -1022,4 +1022,14 @@ class DiffPatchMatch
     return diffs
   end
 
+  # Initialise the alphabet for the Bitap algorithm.
+  def match_alphabet(pattern)
+    s = {}
+    pattern.chars.each_with_index do |c, i|
+      s[c] ||= 0
+      s[c] |= 1 << (pattern.length - i - 1)
+    end
+    s
+  end
+
 end

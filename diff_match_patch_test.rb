@@ -6,6 +6,8 @@ class DiffTest < Test::Unit::TestCase
     @dmp = DiffPatchMatch.new
   end
 
+  # Diff tests
+
   def test_diff_commonPrefix
     # Detect any common prefix.
     # Null case.
@@ -701,6 +703,17 @@ class DiffTest < Test::Unit::TestCase
     assert_raise ArgumentError do
       @dmp.diff_main(nil, nil)
     end
+  end
+
+  # Match tests
+
+  def test_match_alphabet
+    # Initialise the bitmasks for Bitap.
+    # Unique.
+    assert_equal({'a'=>4, 'b'=>2, 'c'=>1}, @dmp.match_alphabet('abc'))
+
+    # Duplicates.
+    assert_equal({'a'=>37, 'b'=>18, 'c'=>8}, @dmp.match_alphabet('abcaba'))
   end
 
 end

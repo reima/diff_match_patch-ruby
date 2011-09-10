@@ -555,4 +555,152 @@ class DiffTest < Test::Unit::TestCase
     )
   end
 
+  def test_diff_main
+    # Perform a trivial diff.
+    # Null case.
+    assert_equal([], @dmp.diff_main('', '', false))
+
+    # Equality.
+    assert_equal([[:diff_equal, 'abc']], @dmp.diff_main('abc', 'abc', false))
+
+    # Simple insertion.
+    assert_equal(
+      [[:diff_equal, 'ab'], [:diff_insert, '123'], [:diff_equal, 'c']],
+      @dmp.diff_main('abc', 'ab123c', false)
+    )
+
+    # Simple deletion.
+    assert_equal(
+      [[:diff_equal, 'a'], [:diff_delete, '123'], [:diff_equal, 'bc']],
+      @dmp.diff_main('a123bc', 'abc', false)
+    )
+
+    # Two insertions.
+    assert_equal(
+      [
+        [:diff_equal, 'a'], [:diff_insert, '123'], [:diff_equal, 'b'],
+        [:diff_insert, '456'], [:diff_equal, 'c']
+      ],
+      @dmp.diff_main('abc', 'a123b456c', false)
+    )
+
+    # Two deletions.
+    assert_equal(
+      [
+        [:diff_equal, 'a'], [:diff_delete, '123'], [:diff_equal, 'b'],
+        [:diff_delete, '456'], [:diff_equal, 'c']
+      ],
+      @dmp.diff_main('a123b456c', 'abc', false)
+    )
+
+    # Perform a real diff.
+    # Switch off the timeout.
+    @dmp.diff_timeout = 0
+    # Simple cases.
+    assert_equal(
+      [[:diff_delete, 'a'], [:diff_insert, 'b']],
+      @dmp.diff_main('a', 'b', false)
+    )
+
+    assert_equal(
+      [
+        [:diff_delete, 'Apple'], [:diff_insert, 'Banana'],
+        [:diff_equal, 's are a'], [:diff_insert, 'lso'],
+        [:diff_equal, ' fruit.']
+      ],
+      @dmp.diff_main('Apples are a fruit.', 'Bananas are also fruit.', false)
+    )
+
+    assert_equal(
+      [
+        [:diff_delete, 'a'], [:diff_insert, "\u0680"], [:diff_equal, 'x'],
+        [:diff_delete, "\t"], [:diff_insert, "\0"]
+      ],
+      @dmp.diff_main("ax\t", "\u0680x\0", false)
+    )
+
+    # Overlaps.
+    assert_equal(
+      [
+        [:diff_delete, '1'], [:diff_equal, 'a'], [:diff_delete, 'y'],
+        [:diff_equal, 'b'], [:diff_delete, '2'], [:diff_insert, 'xab']
+      ],
+      @dmp.diff_main('1ayb2', 'abxab', false)
+    )
+
+    assert_equal(
+      [[:diff_insert, 'xaxcx'], [:diff_equal, 'abc'], [:diff_delete, 'y']],
+      @dmp.diff_main('abcy', 'xaxcxabc', false)
+    )
+
+    assert_equal(
+      [
+        [:diff_delete, 'ABCD'], [:diff_equal, 'a'], [:diff_delete, '='],
+        [:diff_insert, '-'], [:diff_equal, 'bcd'], [:diff_delete, '='],
+        [:diff_insert, '-'], [:diff_equal, 'efghijklmnopqrs'],
+        [:diff_delete, 'EFGHIJKLMNOefg']
+      ],
+      @dmp.diff_main(
+        'ABCDa=bcd=efghijklmnopqrsEFGHIJKLMNOefg',
+        'a-bcd-efghijklmnopqrs',
+        false
+      )
+    )
+
+    # Large equality.
+    assert_equal(
+      [
+        [:diff_insert, ' '], [:diff_equal, 'a'], [:diff_insert, 'nd'],
+        [:diff_equal, ' [[Pennsylvania]]'], [:diff_delete, ' and [[New']
+      ],
+      @dmp.diff_main(
+        'a [[Pennsylvania]] and [[New', ' and [[Pennsylvania]]', false
+      )
+    )
+
+    # Timeout.
+    @dmp.diff_timeout = 0.1;  # 100ms
+    a = "`Twas brillig, and the slithy toves\nDid gyre and gimble in the wabe:\nAll mimsy were the borogoves,\nAnd the mome raths outgrabe.\n"
+    b = "I am the very model of a modern major general,\nI\'ve information vegetable, animal, and mineral,\nI know the kings of England, and I quote the fights historical,\nFrom Marathon to Waterloo, in order categorical.\n"
+    # Increase the text lengths by 1024 times to ensure a timeout.
+    a = a * 1024
+    b = b * 1024
+    start_time = Time.now
+    @dmp.diff_main(a, b)
+    end_time = Time.now
+    # Test that we took at least the timeout period.
+    assert(@dmp.diff_timeout <= end_time - start_time, "not timed out")
+    # Test that we didn't take forever (be forgiving).
+    # Theoretically this test could fail very occasionally if the
+    # OS task swaps or locks up for a second at the wrong moment.
+    assert(@dmp.diff_timeout * 1000 * 2 > end_time - start_time, "took too long")
+    @dmp.diff_timeout = 0
+
+    # Test the linemode speedup.
+    # Must be long to pass the 100 char cutoff.
+    # Simple line-mode.
+    a = "1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n"
+    b = "abcdefghij\nabcdefghij\nabcdefghij\nabcdefghij\nabcdefghij\nabcdefghij\nabcdefghij\nabcdefghij\nabcdefghij\nabcdefghij\nabcdefghij\nabcdefghij\nabcdefghij\n"
+    assert_equal(@dmp.diff_main(a, b, false), @dmp.diff_main(a, b, true))
+
+    # Single line-mode.
+    a = '1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890'
+    b = 'abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij'
+    assert_equal(@dmp.diff_main(a, b, false), @dmp.diff_main(a, b, true))
+
+    # Overlap line-mode.
+    a = "1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n1234567890\n"
+    b = "abcdefghij\n1234567890\n1234567890\n1234567890\nabcdefghij\n1234567890\n1234567890\n1234567890\nabcdefghij\n1234567890\n1234567890\n1234567890\nabcdefghij\n"
+
+    diffs_linemode = @dmp.diff_main(a, b, true)
+    diffs_textmode = @dmp.diff_main(a, b, false)
+    assert_equal(@dmp.diff_text1(diffs_linemode), @dmp.diff_text1(diffs_textmode))
+    assert_equal(@dmp.diff_text2(diffs_linemode), @dmp.diff_text2(diffs_textmode))
+
+    # Test null inputs.
+    assert_raise ArgumentError do
+      @dmp.diff_main(nil, nil)
+    end
+  end
+
 end

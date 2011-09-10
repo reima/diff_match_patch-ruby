@@ -759,6 +759,7 @@ class DiffPatchMatch
     v1[v_offset + 1] = 0
     v2[v_offset + 1] = 0
     delta = text1_length - text2_length
+
     # If the total number of characters is odd, then the front path will collide
     # with the reverse path.
     front = (delta % 2 != 0)
@@ -816,7 +817,7 @@ class DiffPatchMatch
           x2 = v2[k2_offset - 1] + 1
         end
         y2 = x2 - k2
-        while x2 < text1_length && y2 < text2_length && text1[-x2] == text2[-y2]
+        while x2 < text1_length && y2 < text2_length && text1[-x2-1] == text2[-y2-1]
           x2 += 1
           y2 += 1
         end
@@ -884,7 +885,9 @@ class DiffPatchMatch
     end
 
     # Default to checklines == true
-    checklines ||= true
+    if checklines.nil?
+      checklines = true
+    end
 
     # Trim off common prefix (speedup).
     common_length = diff_commonPrefix(text1, text2)
@@ -933,9 +936,9 @@ class DiffPatchMatch
     i = longtext.index(shorttext)
     if !i.nil?
       # Shorter text is inside the longer text (speedup).
-      diffs = [[:diff_insert, longtext.substring[0...i]],
+      diffs = [[:diff_insert, longtext[0...i]],
                [:diff_equal, shorttext],
-               [:diff_insert, longtext.substring[(i + shorttext.length)..-1]]]
+               [:diff_insert, longtext[(i + shorttext.length)..-1]]]
       # Swap insertions for deletions if diff is reversed.
       if text1.length > text2.length
         diffs[0][0] = diffs[2][0] = :diff_delete

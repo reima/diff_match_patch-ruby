@@ -5,6 +5,8 @@ Diff = Struct.new(:op, :text)
 class DiffPatchMatch
   attr_accessor :diff_timeout
   attr_accessor :diff_editCost
+  attr_accessor :match_threshold
+  attr_accessor :match_distance
 
   def initialize
     # Defaults.
@@ -14,6 +16,12 @@ class DiffPatchMatch
     @diff_timeout = 1
     # Cost of an empty edit operation in terms of edit characters.
     @diff_editCost = 4
+    # At what point is no match declared (0.0 = perfection, 1.0 = very loose).
+    @match_threshold = 0.5
+    # How far to search for a match (0 = exact location, 1000+ = broad match).
+    # A match this many characters away from the expected location will add
+    # 1.0 to the score (0.0 is a perfect match).
+    @match_distance = 1000
   end
 
   # Determine the common prefix of two strings.
@@ -174,7 +182,7 @@ class DiffPatchMatch
       hm = hm2
     else
       # Both matched.  Select the longest.
-      hm = hm1[4].length > hm2[4].length ? hm1 : hm2;
+      hm = hm1[4].length > hm2[4].length ? hm1 : hm2
     end
 
     # A half-match was found, sort out the return data.
@@ -286,7 +294,7 @@ class DiffPatchMatch
               (count_delete != 0 ? 1 : 0) + (count_insert != 0 ? 1 : 0) + 1
           elsif pointer != 0 && diffs[pointer - 1].op == :equal
             # Merge this equality with the previous one.
-            diffs[pointer - 1].text += diffs[pointer].text;
+            diffs[pointer - 1].text += diffs[pointer].text
             diffs[pointer, 1] = []
           else
             pointer += 1
@@ -411,7 +419,7 @@ class DiffPatchMatch
           diff_cleanupSemanticScore(edit, equality2)
         while edit[0] == equality2[0]
           equality1 += edit[0]
-          edit = edit[1..-1] + equality2[0];
+          edit = edit[1..-1] + equality2[0]
           equality2 = equality2[1..-1]
           score =
             diff_cleanupSemanticScore(equality1, edit) +
@@ -1030,6 +1038,104 @@ class DiffPatchMatch
       s[c] |= 1 << (pattern.length - i - 1)
     end
     s
+  end
+
+  # Locate the best instance of 'pattern' in 'text' near 'loc' using the
+  # Bitap algorithm.
+  def match_bitap(text, pattern, loc)
+    #if pattern.length > match_maxBits
+    #  throw ArgumentError.new("Pattern too long")
+    #end
+
+    # Initialise the alphabet.
+    s = match_alphabet(pattern)
+
+    # Compute and return the score for a match with e errors and x location.
+    match_bitapScore = -> e, x do
+      accuracy = e.to_f / pattern.length
+      proximity = (loc - x).abs
+      if match_distance == 0
+        # Dodge divide by zero error.
+        return proximity == 0 ? accuracy : 1.0
+      end
+      return accuracy + (proximity.to_f / match_distance)
+    end
+
+    # Highest score beyond which we give up.
+    score_threshold = match_threshold
+    # Is there a nearby exact match? (speedup)
+    best_loc = text.index(pattern, loc)
+    if best_loc
+      score_threshold = [match_bitapScore[0, best_loc], score_threshold].min
+      # What about in the other direction? (speedup)
+      best_loc = text.rindex(pattern, loc + pattern.length)
+      if best_loc
+        score_threshold = [match_bitapScore[0, best_loc], score_threshold].min
+      end
+    end
+
+    # Initialise the bit arrays.
+    match_mask = 1 << (pattern.length - 1)
+    best_loc = -1
+
+    last_rd = nil
+
+    bin_max = pattern.length + text.length
+    pattern.length.times do |d|
+      # Scan for the best match; each iteration allows for one more error.
+      # Run a binary search to determine how far from 'loc' we can stray at this
+      # error level.
+      bin_min = 0
+      bin_mid = bin_max
+      while bin_min < bin_mid
+        if match_bitapScore[d, loc + bin_mid] <= score_threshold
+          bin_min = bin_mid
+        else
+          bin_max = bin_mid
+        end
+        bin_mid = (bin_max - bin_min) / 2 + bin_min
+      end
+      # Use the result from this iteration as the maximum for the next.
+      bin_max = bin_mid
+      start = [1, loc - bin_mid + 1].max
+      finish = [loc + bin_mid, text.length].min + pattern.length
+
+      rd = Array.new(finish + 2, 0)
+      rd[finish + 1] = (1 << d) - 1
+      finish.downto(start) do |j|
+        char_match = s[text[j - 1]] || 0
+        if d == 0 # First pass: exact match.
+          rd[j] = ((rd[j + 1] << 1) | 1) & char_match
+        else # Subsequent passes: fuzzy match.
+          rd[j] = ((rd[j + 1] << 1) | 1) & char_match |
+                  (((last_rd[j + 1] | last_rd[j]) << 1) | 1) |
+                  last_rd[j + 1]
+        end
+        if rd[j] & match_mask != 0
+          score = match_bitapScore[d, j - 1]
+          # This match will almost certainly be better than any existing match.
+          # But check anyway.
+          if score <= score_threshold
+            # Told you so.
+            score_threshold = score
+            best_loc = j - 1
+            if best_loc > loc
+              # When passing loc, don't exceed our current distance from loc.
+              start = [1, 2 * loc - best_loc].max
+            else
+              # Already passed loc, downhill from here on in.
+              break
+            end
+          end
+        end
+      end
+      # No hope for a (better) match at greater error levels.
+      if match_bitapScore[d + 1, loc] > score_threshold
+        break
+      end
+      last_rd = rd
+    end
+    return best_loc
   end
 
 end

@@ -661,7 +661,7 @@ class DiffTest < Test::Unit::TestCase
     )
 
     # Timeout.
-    @dmp.diff_timeout = 0.1;  # 100ms
+    @dmp.diff_timeout = 0.1  # 100ms
     a = "`Twas brillig, and the slithy toves\nDid gyre and gimble in the wabe:\nAll mimsy were the borogoves,\nAnd the mome raths outgrabe.\n"
     b = "I am the very model of a modern major general,\nI\'ve information vegetable, animal, and mineral,\nI know the kings of England, and I quote the fights historical,\nFrom Marathon to Waterloo, in order categorical.\n"
     # Increase the text lengths by 1024 times to ensure a timeout.
@@ -714,6 +714,51 @@ class DiffTest < Test::Unit::TestCase
 
     # Duplicates.
     assert_equal({'a'=>37, 'b'=>18, 'c'=>8}, @dmp.match_alphabet('abcaba'))
+  end
+
+  def test_match_bitap
+    # Bitap algorithm.
+    @dmp.match_distance = 100
+    @dmp.match_threshold = 0.5
+    # Exact matches.
+    assert_equal(5, @dmp.match_bitap('abcdefghijk', 'fgh', 5))
+
+    assert_equal(5, @dmp.match_bitap('abcdefghijk', 'fgh', 0))
+
+    # Fuzzy matches.
+    assert_equal(4, @dmp.match_bitap('abcdefghijk', 'efxhi', 0))
+
+    assert_equal(2, @dmp.match_bitap('abcdefghijk', 'cdefxyhijk', 5))
+
+    assert_equal(-1, @dmp.match_bitap('abcdefghijk', 'bxy', 1))
+
+    # Overflow.
+    assert_equal(2, @dmp.match_bitap('123456789xx0', '3456789x0', 2))
+
+    # Threshold test.
+    @dmp.match_threshold = 0.4
+    assert_equal(4, @dmp.match_bitap('abcdefghijk', 'efxyhi', 1))
+
+    @dmp.match_threshold = 0.3
+    assert_equal(-1, @dmp.match_bitap('abcdefghijk', 'efxyhi', 1))
+
+    @dmp.match_threshold = 0.0
+    assert_equal(1, @dmp.match_bitap('abcdefghijk', 'bcdef', 1))
+    @dmp.match_threshold = 0.5
+
+    # Multiple select.
+    assert_equal(0, @dmp.match_bitap('abcdexyzabcde', 'abccde', 3))
+
+    assert_equal(8, @dmp.match_bitap('abcdexyzabcde', 'abccde', 5))
+
+    # Distance test.
+    @dmp.match_distance = 10  # Strict location.
+    assert_equal(-1, @dmp.match_bitap('abcdefghijklmnopqrstuvwxyz', 'abcdefg', 24))
+
+    assert_equal(0, @dmp.match_bitap('abcdefghijklmnopqrstuvwxyz', 'abcdxxefg', 1))
+
+    @dmp.match_distance = 1000  # Loose location.
+    assert_equal(0, @dmp.match_bitap('abcdefghijklmnopqrstuvwxyz', 'abcdefg', 24))
   end
 
 end

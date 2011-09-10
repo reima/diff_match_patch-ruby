@@ -2,11 +2,60 @@ require 'uri'
 
 Diff = Struct.new(:op, :text)
 
+DMP_UNSAFE = /[^0-9A-Za-z_.;!~*'(),\/?:@&=+$\#-]/
+
+# Class representing one patch operation
+class Patch
+  attr_accessor :start1, :start2
+  attr_accessor :length1, :length2
+  attr_accessor :diffs
+
+  # Constructor
+  def initialize
+    @start1, @start2 = nil, nil
+    @length1, @length2 = 0, 0
+    @diffs = []
+  end
+
+  # Emulate GNU diff's format
+  # Header: @@ -382,8 +481,9 @@
+  # Indices are printed as 1-based, not 0-based.
+  def to_s
+    if length1 == 0
+      coords1 = start1.to_s + ",0"
+    elsif length1 == 1
+      coords1 = (start1 + 1).to_s
+    else
+      coords1 = (start1 + 1).to_s + "," + length1.to_s
+    end
+    if length2 == 0
+      coords2 = start2.to_s + ",0"
+    elsif length2 == 1
+      coords2 = (start2 + 1).to_s
+    else
+      coords2 = (start2 + 1).to_s + "," + length2.to_s
+    end
+    text = '@@ -' + coords1 + ' +' + coords2 + " @@\n"
+    # Encode the body of the patch with %xx notation.
+    text += diffs.map do |diff|
+      op = case diff.op
+        when :insert then '+'
+        when :delete then '-'
+        when :equal  then ' '
+      end
+      op + URI.encode(diff.text, DMP_UNSAFE) + "\n"
+    end.join.gsub('%20', ' ')
+  end
+end
+
 class DiffPatchMatch
   attr_accessor :diff_timeout
   attr_accessor :diff_editCost
   attr_accessor :match_threshold
   attr_accessor :match_distance
+  attr_accessor :patch_deleteThreshold
+  attr_accessor :patch_margin
+  attr_reader :match_maxBits
 
   def initialize
     # Defaults.
@@ -22,6 +71,15 @@ class DiffPatchMatch
     # A match this many characters away from the expected location will add
     # 1.0 to the score (0.0 is a perfect match).
     @match_distance = 1000
+    # When deleting a large block of text (over ~64 characters), how close does
+    # the contents have to match the expected contents. (0.0 = perfection,
+    # 1.0 = very loose).  Note that match_threshold controls how closely the
+    # end points of a delete need to match.
+    @patch_deleteThreshold = 0.5
+    # Chunk size for context length.
+    @patch_margin = 4
+
+    @match_maxBits = 32
   end
 
   # Determine the common prefix of two strings.
@@ -649,13 +707,13 @@ class DiffPatchMatch
     diffs.map do |diff|
       case diff.op
         when :insert
-          '+' + URI.encode(diff.text)
+          '+' + URI.encode(diff.text, DMP_UNSAFE)
         when :delete
           '-' + diff.text.length.to_s
         when :equal
           '=' + diff.text.length.to_s
       end
-    end.join("\t").gsub('%20', ' ').gsub('%23', '#')
+    end.join("\t").gsub('%20', ' ')
   end
 
   # Given the original text1, and an encoded string which describes the
@@ -1043,9 +1101,9 @@ class DiffPatchMatch
   # Locate the best instance of 'pattern' in 'text' near 'loc' using the
   # Bitap algorithm.
   def match_bitap(text, pattern, loc)
-    #if pattern.length > match_maxBits
-    #  throw ArgumentError.new("Pattern too long")
-    #end
+    if pattern.length > match_maxBits
+      throw ArgumentError.new("Pattern too long")
+    end
 
     # Initialise the alphabet.
     s = match_alphabet(pattern)
@@ -1159,6 +1217,225 @@ class DiffPatchMatch
       # Do a fuzzy compare.
       match_bitap(text, pattern, loc)
     end
+  end
+
+   # Parse a textual representation of patches and return a list of patch objects.
+  def patch_fromText(textline)
+    return [] if textline.empty?
+    patches = []
+    text = textline.split("\n")
+    text_pointer = 0
+    patch_header = /^@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@$/
+    while text_pointer < text.length
+      m = text[text_pointer].match(patch_header)
+      if m.nil?
+        raise ArgumentError.new("Invalid patch string: #{text[text_pointer]}")
+      end
+      patch = Patch.new
+      patches.push(patch)
+      patch.start1 = m[1].to_i
+      if m[2].empty?
+        patch.start1 -= 1
+        patch.length1 = 1
+      elsif m[2] == '0'
+        patch.length1 = 0
+      else
+        patch.start1 -= 1
+        patch.length1 = m[2].to_i
+      end
+
+      patch.start2 = m[3].to_i
+      if m[4].empty?
+        patch.start2 -= 1
+        patch.length2 = 1
+      elsif m[4] == '0'
+        patch.length2 = 0
+      else
+        patch.start2 -= 1
+        patch.length2 = m[4].to_i
+      end
+      text_pointer += 1
+
+      while text_pointer < text.length
+        sign = text[text_pointer][0]
+        if sign.nil?
+          # Blank line? Whatever.
+          text_pointer += 1
+          next
+        end
+        line = URI.decode(text[text_pointer][1..-1])
+        case sign
+          when '-'
+            # Deletion.
+            patch.diffs.push(Diff.new(:delete, line))
+          when '+'
+            # Insertion.
+            patch.diffs.push(Diff.new(:insert, line))
+          when ' '
+            # Minor equality
+            patch.diffs.push(Diff.new(:equal, line))
+          when '@'
+            # Start of next patch.
+            break
+          else
+            # WTF?
+            raise ArgumentError.new("Invalid patch mode \"#{sign}\" in: #{line}")
+        end
+        text_pointer += 1
+      end
+    end
+
+    patches
+  end
+
+  # Take a list of patches and return a textual representation.
+  def patch_toText(patches)
+    patches.join
+  end
+
+  # Increase the context until it is unique,
+  # but don't let the pattern expand beyond match_maxBits
+  def patch_addContext(patch, text)
+    return if text.empty?
+    pattern = text[patch.start2, patch.length1]
+    padding = 0
+
+    # Look for the first and last matches of pattern in text.  If two different
+    # matches are found, increase the pattern length.
+    while text.index(pattern) != text.rindex(pattern) &&
+          pattern.length < match_maxBits - 2*patch_margin
+      padding += patch_margin
+      pattern = text[[0, patch.start2 - padding].max...(patch.start2 + patch.length1 + padding)]
+    end
+    # Add one chunk for good luck.
+    padding += patch_margin
+
+    # Add the prefix.
+    prefix = text[[0, patch.start2 - padding].max...patch.start2]
+    if !prefix.to_s.empty?
+      patch.diffs.unshift(Diff.new(:equal, prefix))
+    end
+    # Add the suffix.
+    suffix = text[patch.start2 + patch.length1, padding]
+    if !suffix.to_s.empty?
+      patch.diffs.push(Diff.new(:equal, suffix))
+    end
+
+    # Roll back the start points.
+    patch.start1 -= prefix.length
+    patch.start2 -= prefix.length
+    # Extend the lengths.
+    patch.length1 += prefix.length + suffix.length
+    patch.length2 += prefix.length + suffix.length
+  end
+
+  # Compute a list of patches to turn text1 into text2.
+  # Use diffs if provided, otherwise compute it ourselves.
+  # There are four ways to call this function, depending on what data is
+  # available to the caller:
+  # Method 1:
+  # a = text1, b = text2
+  # Method 2:
+  # a = diffs
+  # Method 3 (optimal):
+  # a = text1, b = diffs
+  # Method 4 (deprecated, use method 3):
+  # a = text1, b = text2, c = diffs
+  def patch_make(*args)
+    text1 = diffs = nil
+    if args.length == 2 && args[0].is_a?(String) && args[1].is_a?(String)
+      # Method 1: text1, text2
+      # Compute diffs from text1 and text2.
+      text1, text2 = args
+      diffs = diff_main(text1, text2, true)
+      if diffs.length > 2
+        diff_cleanupSemantic(diffs)
+        diff_cleanupEfficiency(diffs)
+      end
+    elsif args.length == 1 && args[0].is_a?(Array)
+      # Method 2: diffs
+      # Compute text1 from diffs.
+      diffs = args[0]
+      text1 = diff_text1(diffs)
+    elsif args.length == 2 && args[0].is_a?(String) && args[1].is_a?(Array)
+      # Method 3: text1, diffs
+      text1, diffs = args
+    elsif args.length == 3 && args[0].is_a?(String) && args[1].is_a?(String) &&
+          args[2].is_a?(Array)
+      # Method 4: text1, text2, diffs
+      # text2 is not used.
+      text1, text2, diffs = args
+    else
+      raise ArgumentError.new('Unknown call format to patch_make.')
+    end
+
+    return [] if diffs.empty? # Get rid of the null case.
+
+    patches = []
+    patch = Patch.new
+    char_count1 = 0 # Number of characters into the text1 string.
+    char_count2 = 0 # Number of characters into the text2 string.
+    # Start with text1 (prepatch_text) and apply the diffs until we arrive at
+    # text2 (postpatch_text).  We recreate the patches one by one to determine
+    # context info.
+    prepatch_text = text1
+    postpatch_text = text1
+    diffs.each_with_index do |diff, x|
+      if patch.diffs.empty? && diff.op != :equal
+        # A new patch starts here.
+        patch.start1 = char_count1
+        patch.start2 = char_count2
+      end
+
+      case diff.op
+        when :insert
+          patch.diffs.push(diff)
+          patch.length2 += diff.text.length
+          postpatch_text = postpatch_text[0...char_count2] + diff.text +
+                           postpatch_text[char_count2..-1]
+        when :delete
+          patch.length1 += diff.text.length
+          patch.diffs.push(diff)
+          postpatch_text = postpatch_text[0...char_count2] +
+                           postpatch_text[(char_count2 + diff.text.length)..-1]
+        when :equal
+          if diff.text.length <= 2 * patch_margin &&
+             !patch.diffs.empty? && diffs.length != x + 1
+            # Small equality inside a patch.
+            patch.diffs.push(diff)
+            patch.length1 += diff.text.length
+            patch.length2 += diff.text.length
+          elsif diff.text.length >= 2 * patch_margin
+            # Time for a new patch.
+            if !patch.diffs.empty?
+              patch_addContext(patch, prepatch_text)
+              patches.push(patch)
+              patch = Patch.new
+              # Unlike Unidiff, our patch lists have a rolling context.
+              # http://code.google.com/p/google-diff-match-patch/wiki/Unidiff
+              # Update prepatch text & pos to reflect the application of the
+              # just completed patch.
+              prepatch_text = postpatch_text
+              char_count1 = char_count2
+            end
+          end
+      end
+
+      # Update the current character count.
+      if diff.op != :insert
+        char_count1 += diff.text.length
+      end
+      if diff.op != :delete
+        char_count2 += diff.text.length
+      end
+    end
+    # Pick up the leftover patch if not empty.
+    if !patch.diffs.empty?
+      patch_addContext(patch, prepatch_text)
+      patches.push(patch)
+    end
+
+    patches
   end
 
 end

@@ -787,4 +787,150 @@ class DiffTest < Test::Unit::TestCase
     end
   end
 
+  # Patch tests
+  def test_patch_obj
+    # Patch Object.
+    p = Patch.new
+    p.start1 = 20
+    p.start2 = 21
+    p.length1 = 18
+    p.length2 = 17
+    p.diffs = [
+      Diff.new(:equal, 'jump'),
+      Diff.new(:delete, 's'),
+      Diff.new(:insert, 'ed'),
+      Diff.new(:equal, ' over '),
+      Diff.new(:delete, 'the'),
+      Diff.new(:insert, 'a'),
+      Diff.new(:equal, "\nlaz")
+    ]
+    strp = p.to_s
+    assert_equal(
+      "@@ -21,18 +22,17 @@\n jump\n-s\n+ed\n  over \n-the\n+a\n %0Alaz\n",
+      strp
+    )
+  end
+
+  def test_patch_fromText
+    assert_equal([], @dmp.patch_fromText(""))
+
+    [
+      "@@ -21,18 +22,17 @@\n jump\n-s\n+ed\n  over \n-the\n+a\n %0Alaz\n",
+      "@@ -1 +1 @@\n-a\n+b\n",
+      "@@ -1 +1 @@\n-a\n+b\n",
+      "@@ -0,0 +1,3 @@\n+abc\n"
+    ].each do |strp|
+      assert_equal(strp, @dmp.patch_fromText(strp).first.to_s)
+    end
+
+    # Generates error.
+    assert_raise ArgumentError do
+      @dmp.patch_fromText('Bad\nPatch\n')
+    end
+  end
+
+  def test_patch_toText
+    [
+      "@@ -21,18 +22,17 @@\n jump\n-s\n+ed\n  over \n-the\n+a\n  laz\n",
+      "@@ -1,9 +1,9 @@\n-f\n+F\n oo+fooba\n@@ -7,9 +7,9 @@\n obar\n-,\n+.\n  tes\n"
+    ].each do |strp|
+      p = @dmp.patch_fromText(strp)
+      assert_equal(strp, @dmp.patch_toText(p))
+    end
+  end
+
+  def test_patch_addContext
+    @dmp.patch_margin = 4
+    p = @dmp.patch_fromText("@@ -21,4 +21,10 @@\n-jump\n+somersault\n").first
+    @dmp.patch_addContext(p, 'The quick brown fox jumps over the lazy dog.')
+    assert_equal(
+      "@@ -17,12 +17,18 @@\n fox \n-jump\n+somersault\n s ov\n",
+      p.to_s
+    )
+
+    # Same, but not enough trailing context.
+    p = @dmp.patch_fromText("@@ -21,4 +21,10 @@\n-jump\n+somersault\n").first
+    @dmp.patch_addContext(p, 'The quick brown fox jumps.')
+    assert_equal(
+      "@@ -17,10 +17,16 @@\n fox \n-jump\n+somersault\n s.\n",
+      p.to_s
+    )
+
+    # Same, but not enough leading context.
+    p = @dmp.patch_fromText("@@ -3 +3,2 @@\n-e\n+at\n").first
+    @dmp.patch_addContext(p, 'The quick brown fox jumps.')
+    assert_equal(
+      "@@ -1,7 +1,8 @@\n Th\n-e\n+at\n  qui\n",
+      p.to_s
+    )
+
+    # Same, but with ambiguity.
+    p = @dmp.patch_fromText("@@ -3 +3,2 @@\n-e\n+at\n").first
+    @dmp.patch_addContext(p, 'The quick brown fox jumps.  The quick brown fox crashes.');
+    assert_equal(
+      "@@ -1,27 +1,28 @@\n Th\n-e\n+at\n  quick brown fox jumps. \n",
+      p.to_s
+    )
+  end
+
+  def test_patch_make
+    # Null case.
+    patches = @dmp.patch_make('', '')
+    assert_equal('', @dmp.patch_toText(patches))
+
+    text1 = 'The quick brown fox jumps over the lazy dog.'
+    text2 = 'That quick brown fox jumped over a lazy dog.'
+    # Text2+Text1 inputs.
+    expectedPatch = "@@ -1,8 +1,7 @@\n Th\n-at\n+e\n  qui\n@@ -21,17 +21,18 @@\n jump\n-ed\n+s\n  over \n-a\n+the\n  laz\n"
+    # The second patch must be "-21,17 +21,18", not "-22,17 +21,18" due to rolling context
+    patches = @dmp.patch_make(text2, text1)
+    assert_equal(expectedPatch, @dmp.patch_toText(patches))
+
+    # Text1+Text2 inputs.
+    expectedPatch = "@@ -1,11 +1,12 @@\n Th\n-e\n+at\n  quick b\n@@ -22,18 +22,17 @@\n jump\n-s\n+ed\n  over \n-the\n+a\n  laz\n"
+    patches = @dmp.patch_make(text1, text2)
+    assert_equal(expectedPatch, @dmp.patch_toText(patches))
+
+    # Diff input.
+    diffs = @dmp.diff_main(text1, text2, false)
+    patches = @dmp.patch_make(diffs)
+    assert_equal(expectedPatch, @dmp.patch_toText(patches))
+
+    # Text1+Diff inputs.
+    patches = @dmp.patch_make(text1, diffs)
+    assert_equal(expectedPatch, @dmp.patch_toText(patches))
+
+    # Text1+Text2+Diff inputs (deprecated)
+    patches = @dmp.patch_make(text1, text2, diffs)
+    assert_equal(expectedPatch, @dmp.patch_toText(patches))
+
+    # Character encoding.
+    patches = @dmp.patch_make('`1234567890-=[]\\;\',./', '~!@#$%^&*()_+{}|:"<>?')
+    assert_equal("@@ -1,21 +1,21 @@\n-%601234567890-=%5B%5D%5C;\',./\n+~!@\#$%25%5E&*()_+%7B%7D%7C:%22%3C%3E?\n", @dmp.patch_toText(patches))
+
+    # Character decoding.
+    diffs = [
+      Diff.new(:delete, '`1234567890-=[]\\;\',./'),
+      Diff.new(:insert, '~!@#$%^&*()_+{}|:"<>?')
+    ]
+    assert_equal(
+      diffs,
+      @dmp.patch_fromText(
+        "@@ -1,21 +1,21 @@\n-%601234567890-=%5B%5D%5C;\',./\n+~!@\#$%25%5E&*()_+%7B%7D%7C:%22%3C%3E?\n"
+      ).first.diffs
+    )
+
+    # Long string with repeats.
+    text1 = 'abcdef' * 100
+    text2 = text1 + '123'
+    expectedPatch = "@@ -573,28 +573,31 @@\n cdefabcdefabcdefabcdefabcdef\n+123\n"
+    patches = @dmp.patch_make(text1, text2)
+    assert_equal(expectedPatch, @dmp.patch_toText(patches))
+
+    # Test null inputs.
+    assert_raise ArgumentError do
+      @dmp.patch_make(nil)
+    end
+  end
+
 end

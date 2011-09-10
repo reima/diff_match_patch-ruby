@@ -1,5 +1,5 @@
 require 'test/unit'
-require_relative 'diff_patch_match'
+require_relative 'diff_match_patch'
 
 class DiffTest < Test::Unit::TestCase
   def setup

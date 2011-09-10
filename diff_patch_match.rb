@@ -963,10 +963,61 @@ class DiffPatchMatch
     end
 
     if checklines && text1.length > 100 && text2.length > 100
-      return this.diff_lineMode(text1, text2, deadline)
+      return diff_lineMode(text1, text2, deadline)
     end
 
     return diff_bisect(text1, text2, deadline)
+  end
+
+  # Do a quick line-level diff on both strings, then rediff the parts for
+  # greater accuracy.
+  # This speedup can produce non-minimal diffs.
+  def diff_lineMode(text1, text2, deadline)
+    # Scan the text on a line-by-line basis first.
+    text1, text2, line_array = diff_linesToChars(text1, text2)
+    diffs = diff_bisect(text1, text2, deadline)
+
+    # Convert the diff back to original text.
+    diff_charsToLines(diffs, line_array)
+    # Eliminate freak matches (e.g. blank lines)
+    diff_cleanupSemantic(diffs)
+
+    # Rediff any replacement blocks, this time character-by-character.
+    # Add a dummy entry at the end.
+    diffs.push([:diff_equal, ''])
+    pointer = 0
+    count_delete = 0
+    count_insert = 0
+    text_delete = ''
+    text_insert = ''
+    while pointer < diffs.length
+      case diffs[pointer][0]
+        when :diff_insert
+          count_insert += 1
+          text_insert += diffs[pointer][1]
+        when :diff_delete
+          count_delete += 1
+          text_delete += diffs[pointer][1]
+        when :diff_equal
+          # Upon reaching an equality, check for prior redundancies.
+          if count_delete >= 1 && count_insert >= 1
+            # Delete the offending records and add the merged ones.
+            a = diff_main(text_delete, text_insert, false, deadline)
+            diffs[pointer - count_delete - count_insert, count_delete + count_insert] = []
+            pointer = pointer - count_delete - count_insert
+            diffs[pointer, 0] = a
+            pointer = pointer + a.length
+          end
+          count_insert = 0
+          count_delete = 0
+          text_delete = ''
+          text_insert = ''
+      end
+      pointer += 1
+    end
+    diffs.pop # Remove the dummy entry at the end.
+
+    return diffs
   end
 
 end

@@ -730,7 +730,7 @@ class DiffTest < Test::Unit::TestCase
 
     assert_equal(2, @dmp.match_bitap('abcdefghijk', 'cdefxyhijk', 5))
 
-    assert_equal(-1, @dmp.match_bitap('abcdefghijk', 'bxy', 1))
+    assert_equal(nil, @dmp.match_bitap('abcdefghijk', 'bxy', 1))
 
     # Overflow.
     assert_equal(2, @dmp.match_bitap('123456789xx0', '3456789x0', 2))
@@ -740,7 +740,7 @@ class DiffTest < Test::Unit::TestCase
     assert_equal(4, @dmp.match_bitap('abcdefghijk', 'efxyhi', 1))
 
     @dmp.match_threshold = 0.3
-    assert_equal(-1, @dmp.match_bitap('abcdefghijk', 'efxyhi', 1))
+    assert_equal(nil, @dmp.match_bitap('abcdefghijk', 'efxyhi', 1))
 
     @dmp.match_threshold = 0.0
     assert_equal(1, @dmp.match_bitap('abcdefghijk', 'bcdef', 1))
@@ -753,12 +753,38 @@ class DiffTest < Test::Unit::TestCase
 
     # Distance test.
     @dmp.match_distance = 10  # Strict location.
-    assert_equal(-1, @dmp.match_bitap('abcdefghijklmnopqrstuvwxyz', 'abcdefg', 24))
+    assert_equal(nil, @dmp.match_bitap('abcdefghijklmnopqrstuvwxyz', 'abcdefg', 24))
 
     assert_equal(0, @dmp.match_bitap('abcdefghijklmnopqrstuvwxyz', 'abcdxxefg', 1))
 
     @dmp.match_distance = 1000  # Loose location.
     assert_equal(0, @dmp.match_bitap('abcdefghijklmnopqrstuvwxyz', 'abcdefg', 24))
+  end
+
+  def test_match_main
+    # Full match.
+    # Shortcut matches.
+    assert_equal(0, @dmp.match_main('abcdef', 'abcdef', 1000))
+
+    assert_equal(nil, @dmp.match_main('', 'abcdef', 1))
+
+    assert_equal(3, @dmp.match_main('abcdef', '', 3))
+
+    assert_equal(3, @dmp.match_main('abcdef', 'de', 3))
+
+    # Beyond end match.
+    assert_equal(3, @dmp.match_main("abcdef", "defy", 4))
+
+    # Oversized pattern.
+    assert_equal(0, @dmp.match_main("abcdef", "abcdefy", 0))
+
+    # Complex match.
+    assert_equal(4, @dmp.match_main('I am the very model of a modern major general.', ' that berry ', 5))
+
+    # Test null inputs.
+    assert_raise ArgumentError do
+      @dmp.match_main(nil, nil, 0)
+    end
   end
 
 end

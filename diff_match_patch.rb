@@ -1076,7 +1076,7 @@ class DiffPatchMatch
 
     # Initialise the bit arrays.
     match_mask = 1 << (pattern.length - 1)
-    best_loc = -1
+    best_loc = nil
 
     last_rd = nil
 
@@ -1135,7 +1135,30 @@ class DiffPatchMatch
       end
       last_rd = rd
     end
-    return best_loc
+    best_loc
+  end
+
+  def match_main(text, pattern, loc)
+    # Check for null inputs.
+    if text.nil? || pattern.nil? || loc.nil?
+      raise ArgumentError.new("Null input. (match_main)")
+    end
+
+    loc = 0 if loc < 0
+    loc = text.length if loc > text.length
+    if text == pattern
+      # Shortcut (potentially not guaranteed by the algorithm)
+      0
+    elsif text.empty?
+      # Nothing to match
+      nil
+    elsif text[loc, pattern.length] == pattern
+      # Perfect match at the perfect spot!  (Includes case of null pattern)
+      loc
+    else
+      # Do a fuzzy compare.
+      match_bitap(text, pattern, loc)
+    end
   end
 
 end

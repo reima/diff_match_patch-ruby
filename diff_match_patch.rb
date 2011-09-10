@@ -351,7 +351,7 @@ class DiffPatchMatch
       end # case
     end # while
 
-    if diffs[-1].text.empty?
+    if diffs.last.text.empty?
       diffs.pop # Remove the dummy entry at the end.
     end
 
@@ -503,7 +503,7 @@ class DiffPatchMatch
   def diff_cleanupSemantic(diffs)
     changes = false
     equalities = []  # Stack of indices where equalities are found.
-    last_equality = nil # Always equal to equalities[-1][1]
+    last_equality = nil # Always equal to equalities.last[1]
     pointer = 0 # Index of current position.
     # Number of characters that changed prior to the equality.
     length_insertions1 = length_deletions1 = 0
@@ -528,14 +528,14 @@ class DiffPatchMatch
            last_equality.length <= [length_insertions1, length_deletions1].max &&
            last_equality.length <= [length_insertions2, length_deletions2].max
           # Duplicate record.
-          diffs[equalities[-1], 0] = [Diff.new(:delete, last_equality)]
+          diffs[equalities.last, 0] = [Diff.new(:delete, last_equality)]
           # Change second copy to insert.
-          diffs[equalities[-1] + 1].op = :insert
+          diffs[equalities.last + 1].op = :insert
           # Throw away the equality we just deleted.
           equalities.pop
           # Throw away the previous equality (it needs to be reevaluated).
           equalities.pop
-          pointer = equalities.empty? ? -1 : equalities[-1]
+          pointer = equalities.last || -1
           length_insertions1 = length_deletions1 = 0  # Reset the counters.
           length_insertions2 = length_deletions2 = 0
           last_equality = nil
@@ -577,7 +577,7 @@ class DiffPatchMatch
   def diff_cleanupEfficiency(diffs)
     changes = false
     equalities = []  # Stack of indices where equalities are found.
-    last_equality = ''  # Always equal to equalities[-1][1]
+    last_equality = ''  # Always equal to equalities.last[1]
     pointer = 0  # Index of current position.
     # Is there an insertion operation before the last equality.
     pre_ins = false
@@ -619,9 +619,9 @@ class DiffPatchMatch
             ((last_equality.length < diff_editCost / 2) &&
              [pre_ins, pre_del, post_ins, post_del].count(true) == 3))
           # Duplicate record.
-          diffs[equalities[-1], 0] = [Diff.new(:delete, last_equality)]
+          diffs[equalities.last, 0] = [Diff.new(:delete, last_equality)]
           # Change second copy to insert.
-          diffs[equalities[-1] + 1].op = :insert
+          diffs[equalities.last + 1].op = :insert
           equalities.pop # Throw away the equality we just deleted
           last_equality = ''
           if pre_ins && pre_del
@@ -630,7 +630,7 @@ class DiffPatchMatch
             equalities.clear
           else
             equalities.pop  # Throw away the previous equality.
-            pointer = equalities[-1] || -1
+            pointer = equalities.last || -1
             post_ins = post_del = false
           end
           changes = true
@@ -1421,6 +1421,237 @@ class DiffPatchMatch
     end
 
     patches
+  end
+
+  # Look through the patches and break up any which are longer than the maximum
+  # limit of the match algorithm.
+  def patch_splitMax(patches)
+    patch_size = match_maxBits
+    x = 0
+    while x < patches.length
+      if patches[x].length1 > patch_size
+        big_patch = patches[x]
+        # Remove the big old patch
+        patches[x, 1] = []
+        x -= 1
+        start1 = big_patch.start1
+        start2 = big_patch.start2
+        pre_context = ''
+        while !big_patch.diffs.empty?
+          # Create one of several smaller patches.
+          patch = Patch.new
+          empty = true
+          patch.start1 = start1 - pre_context.length
+          patch.start2 = start2 - pre_context.length
+          unless pre_context.empty?
+            patch.length1 = patch.length2 = pre_context.length
+            patch.diffs.push(Diff.new(:equal, pre_context))
+          end
+          while !big_patch.diffs.empty? &&
+                patch.length1 < patch_size - patch_margin
+            diff = big_patch.diffs.first
+            if diff.op == :insert
+              # Insertions are harmless.
+              patch.length2 += diff.text.length
+              start2 += diff.text.length
+              patch.diffs.push(big_patch.diffs.shift)
+              empty = false
+            elsif diff.op == :delete && patch.diffs.length == 1 &&
+                  patch.diffs.first.op == :equal &&
+                  diff.text.length > 2 * patch_size
+              # This is a large deletion.  Let it pass in one chunk.
+              patch.length1 += diff.text.length
+              start1 += diff.text.length
+              empty = false
+              patch.diffs.push(big_patch.diffs.shift)
+            else
+              # Deletion or equality.  Only take as much as we can stomach.
+              diff_text = diff.text[0, patch_size - patch.length1 - patch_margin]
+              patch.length1 += diff_text.length
+              start1 += diff_text.length
+              if diff.op == :equal
+                patch.length2 += diff_text.length
+                start2 += diff_text.length
+              else
+                empty = false
+              end
+              patch.diffs.push(Diff.new(diff.op, diff_text))
+              if diff_text == big_patch.diffs.first.text
+                big_patch.diffs.shift
+              else
+                big_patch.diffs.first.text =
+                  big_patch.diffs.first.text[diff_text.length..-1]
+              end
+            end
+          end
+          # Compute the head context for the next patch.
+          pre_context = diff_text2(patch.diffs)[-patch_margin..-1] || ''
+          # Append the end context for this patch.
+          post_context = diff_text1(big_patch.diffs)[0...patch_margin] || ''
+          unless post_context.empty?
+            patch.length1 += post_context.length
+            patch.length2 += post_context.length
+            if !patch.diffs.empty? && patch.diffs.last.op == :equal
+              patch.diffs.last.text += post_context
+            else
+              patch.diffs.push(Diff.new(:equal, post_context))
+            end
+          end
+          if !empty
+            x += 1
+            patches[x, 0] = [patch]
+          end
+        end
+      end
+      x += 1
+    end # while x < patches.length
+  end
+
+  # Add some padding on text start and end so that edges can match something.
+  # Intended to be called only from within patch_apply.
+  def patch_addPadding(patches)
+    padding_length = patch_margin
+    null_padding = (1..padding_length).map{ |x| x.chr(Encoding::UTF_8) }.join
+
+    # Bump all the patches forward.
+    patches.each do |patch|
+      patch.start1 += padding_length
+      patch.start2 += padding_length
+    end
+
+    # Add some padding on start of first diff.
+    patch = patches.first
+    diffs = patch.diffs
+    if diffs.empty? || diffs.first.op != :equal
+      # Add nullPadding equality.
+      diffs.unshift(Diff.new(:equal, null_padding))
+      patch.start1 -= padding_length  # Should be 0.
+      patch.start2 -= padding_length  # Should be 0.
+      patch.length1 += padding_length
+      patch.length2 += padding_length
+    elsif padding_length > diffs.first.text.length
+      # Grow first equality.
+      extra_length = padding_length - diffs.first.text.length
+      diffs.first.text = null_padding[diffs.first.text.length..-1] +
+        diffs.first.text
+      patch.start1 -= extra_length
+      patch.start2 -= extra_length
+      patch.length1 += extra_length
+      patch.length2 += extra_length
+    end
+
+    # Add some padding on end of last diff.
+    patch = patches.last
+    diffs = patch.diffs
+    if diffs.empty? || diffs.last.op != :equal
+      # Add nullPadding equality.
+      diffs.push(Diff.new(:equal, null_padding))
+      patch.length1 += padding_length
+      patch.length2 += padding_length
+    elsif padding_length > diffs.last.text.length
+      # Grow last equality.
+      extra_length = padding_length - diffs.last.text.length
+      diffs.last.text += null_padding[0, extra_length]
+      patch.length1 += extra_length
+      patch.length2 += extra_length
+    end
+
+    null_padding
+  end
+
+  # Merge a set of patches onto the text.  Return a patched text, as well
+  # as a list of true/false values indicating which patches were applied.
+  def patch_apply(patches, text)
+    return [text, []]  if patches.empty?
+
+    # Deep copy the patches so that no changes are made to originals.
+    patches = Marshal.load(Marshal.dump(patches))
+
+    null_padding = patch_addPadding(patches)
+    text = null_padding + text + null_padding
+
+    patch_splitMax(patches)
+    # delta keeps track of the offset between the expected and actual location
+    # of the previous patch.  If there are patches expected at positions 10 and
+    # 20, but the first patch was found at 12, delta is 2 and the second patch
+    # has an effective expected position of 22.
+    delta = 0
+    results = []
+    patches.each_with_index do |patch, x|
+      expected_loc = patch.start2 + delta
+      text1 = diff_text1(patch.diffs)
+      start_loc = end_loc = nil
+      if text1.length > match_maxBits
+        # patch_splitMax will only provide an oversized pattern in the case of
+        # a monster delete.
+        start_loc = match_main(text, text1[0, match_maxBits], expected_loc)
+        if start_loc
+          end_loc = match_main(text,
+            text1[(text1.length - match_maxBits)..-1],
+            expected_loc + text1.length - match_maxBits)
+          if end_loc.nil? || start_loc >= end_loc
+            # Can't find valid trailing context.  Drop this patch.
+            start_loc = nil
+          end
+        end
+      else
+        start_loc = match_main(text, text1, expected_loc)
+      end
+      if start_loc.nil?
+        # No match found.  :(
+        results[x] = false
+        # Subtract the delta for this failed patch from subsequent patches.
+        delta -= patch.length2 - patch.length1
+      else
+        # Found a match.  :)
+        results[x] = true
+        delta = start_loc - expected_loc
+        text2 = nil
+        if end_loc.nil?
+          text2 = text[start_loc, text1.length]
+        else
+          text2 = text[start_loc...(end_loc + match_maxBits)]
+        end
+        if text1 == text2
+          # Perfect match, just shove the replacement text in.
+          text = text[0, start_loc] + diff_text2(patch.diffs) +
+            text[(start_loc + text1.length)..-1]
+        else
+          # Imperfect match.  Run a diff to get a framework of equivalent
+          # indices.
+          diffs = diff_main(text1, text2, false)
+          if text1.length > match_maxBits &&
+             diff_levenshtein(diffs).to_f / text1.length >
+               patch_deleteThreshold
+            # The end points match, but the content is unacceptably bad.
+            results[x] = false
+          else
+            diff_cleanupSemanticLossless(diffs)
+            index1 = 0
+            index2 = nil
+            patch.diffs.each do |mod|
+              if mod.op != :equal
+                index2 = diff_xIndex(diffs, index1)
+              end
+              if mod.op == :insert  # Insertion
+                text = text[0, start_loc + index2] + mod.text +
+                  text[(start_loc + index2)..-1]
+              elsif mod.op == :delete  # Deletion
+                text = text[0, start_loc + index2] +
+                  text[(start_loc + diff_xIndex(diffs, index1 + mod.text.length))..-1]
+              end
+              if mod.op != :delete
+                index1 += mod.text.length
+              end
+            end
+          end
+        end
+      end
+    end
+    # Strip the padding off.
+    text = text[null_padding.length...-null_padding.length]
+
+    [text, results]
   end
 
 end

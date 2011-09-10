@@ -788,6 +788,7 @@ class DiffTest < Test::Unit::TestCase
   end
 
   # Patch tests
+
   def test_patch_obj
     # Patch Object.
     p = Patch.new
@@ -931,6 +932,122 @@ class DiffTest < Test::Unit::TestCase
     assert_raise ArgumentError do
       @dmp.patch_make(nil)
     end
+  end
+
+  def test_patch_splitMax
+    # Assumes that dmp.Match_MaxBits is 32.
+    patches = @dmp.patch_make('abcdefghijklmnopqrstuvwxyz01234567890', 'XabXcdXefXghXijXklXmnXopXqrXstXuvXwxXyzX01X23X45X67X89X0')
+    @dmp.patch_splitMax(patches)
+    assert_equal("@@ -1,32 +1,46 @@\n+X\n ab\n+X\n cd\n+X\n ef\n+X\n gh\n+X\n ij\n+X\n kl\n+X\n mn\n+X\n op\n+X\n qr\n+X\n st\n+X\n uv\n+X\n wx\n+X\n yz\n+X\n 012345\n@@ -25,13 +39,18 @@\n zX01\n+X\n 23\n+X\n 45\n+X\n 67\n+X\n 89\n+X\n 0\n", @dmp.patch_toText(patches))
+
+    patches = @dmp.patch_make('abcdef1234567890123456789012345678901234567890123456789012345678901234567890uvwxyz', 'abcdefuvwxyz')
+    oldToText = @dmp.patch_toText(patches)
+    @dmp.patch_splitMax(patches)
+    assert_equal(oldToText, @dmp.patch_toText(patches))
+
+    patches = @dmp.patch_make('1234567890123456789012345678901234567890123456789012345678901234567890', 'abc')
+    @dmp.patch_splitMax(patches)
+    assert_equal("@@ -1,32 +1,4 @@\n-1234567890123456789012345678\n 9012\n@@ -29,32 +1,4 @@\n-9012345678901234567890123456\n 7890\n@@ -57,14 +1,3 @@\n-78901234567890\n+abc\n", @dmp.patch_toText(patches))
+
+    patches = @dmp.patch_make('abcdefghij , h : 0 , t : 1 abcdefghij , h : 0 , t : 1 abcdefghij , h : 0 , t : 1', 'abcdefghij , h : 1 , t : 1 abcdefghij , h : 1 , t : 1 abcdefghij , h : 0 , t : 1')
+    @dmp.patch_splitMax(patches)
+    assert_equal("@@ -2,32 +2,32 @@\n bcdefghij , h : \n-0\n+1\n  , t : 1 abcdef\n@@ -29,32 +29,32 @@\n bcdefghij , h : \n-0\n+1\n  , t : 1 abcdef\n", @dmp.patch_toText(patches))
+  end
+
+  def test_patch_addPadding
+    # Both edges full.
+    patches = @dmp.patch_make('', 'test')
+    assert_equal("@@ -0,0 +1,4 @@\n+test\n", @dmp.patch_toText(patches))
+    @dmp.patch_addPadding(patches)
+    assert_equal("@@ -1,8 +1,12 @@\n %01%02%03%04\n+test\n %01%02%03%04\n", @dmp.patch_toText(patches))
+
+    # Both edges partial.
+    patches = @dmp.patch_make('XY', 'XtestY')
+    assert_equal("@@ -1,2 +1,6 @@\n X\n+test\n Y\n", @dmp.patch_toText(patches))
+    @dmp.patch_addPadding(patches)
+    assert_equal("@@ -2,8 +2,12 @@\n %02%03%04X\n+test\n Y%01%02%03\n", @dmp.patch_toText(patches))
+
+    # Both edges none.
+    patches = @dmp.patch_make('XXXXYYYY', 'XXXXtestYYYY')
+    assert_equal("@@ -1,8 +1,12 @@\n XXXX\n+test\n YYYY\n", @dmp.patch_toText(patches))
+    @dmp.patch_addPadding(patches)
+    assert_equal("@@ -5,8 +5,12 @@\n XXXX\n+test\n YYYY\n", @dmp.patch_toText(patches))
+  end
+
+  def test_patch_apply
+    @dmp.match_distance = 1000
+    @dmp.match_threshold = 0.5
+    @dmp.patch_deleteThreshold = 0.5
+    # Null case.
+    patches = @dmp.patch_make('', '')
+    results = @dmp.patch_apply(patches, 'Hello world.')
+    assert_equal(['Hello world.', []], results)
+
+    # Exact match.
+    patches = @dmp.patch_make('The quick brown fox jumps over the lazy dog.', 'That quick brown fox jumped over a lazy dog.')
+    results = @dmp.patch_apply(patches, 'The quick brown fox jumps over the lazy dog.')
+    assert_equal(['That quick brown fox jumped over a lazy dog.', [true, true]], results)
+
+    # Partial match.
+    results = @dmp.patch_apply(patches, 'The quick red rabbit jumps over the tired tiger.')
+    assert_equal(['That quick red rabbit jumped over a tired tiger.', [true, true]], results)
+
+    # Failed match.
+    results = @dmp.patch_apply(patches, 'I am the very model of a modern major general.')
+    assert_equal(['I am the very model of a modern major general.', [false, false]], results)
+
+    # Big delete, small change.
+    patches = @dmp.patch_make('x1234567890123456789012345678901234567890123456789012345678901234567890y', 'xabcy')
+    results = @dmp.patch_apply(patches, 'x123456789012345678901234567890-----++++++++++-----123456789012345678901234567890y')
+    assert_equal(['xabcy', [true, true]], results)
+
+    # Big delete, big change 1.
+    patches = @dmp.patch_make('x1234567890123456789012345678901234567890123456789012345678901234567890y', 'xabcy')
+    results = @dmp.patch_apply(patches, 'x12345678901234567890---------------++++++++++---------------12345678901234567890y')
+    assert_equal(['xabc12345678901234567890---------------++++++++++---------------12345678901234567890y', [false, true]], results)
+
+    # Big delete, big change 2.
+    @dmp.patch_deleteThreshold = 0.6
+    patches = @dmp.patch_make('x1234567890123456789012345678901234567890123456789012345678901234567890y', 'xabcy')
+    results = @dmp.patch_apply(patches, 'x12345678901234567890---------------++++++++++---------------12345678901234567890y')
+    assert_equal(['xabcy', [true, true]], results)
+    @dmp.patch_deleteThreshold = 0.5
+
+    # Compensate for failed patch.
+    @dmp.match_threshold = 0.0
+    @dmp.match_distance = 0
+    patches = @dmp.patch_make('abcdefghijklmnopqrstuvwxyz--------------------1234567890', 'abcXXXXXXXXXXdefghijklmnopqrstuvwxyz--------------------1234567YYYYYYYYYY890')
+    results = @dmp.patch_apply(patches, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ--------------------1234567890')
+    assert_equal(['ABCDEFGHIJKLMNOPQRSTUVWXYZ--------------------1234567YYYYYYYYYY890', [false, true]], results)
+    @dmp.match_threshold = 0.5
+    @dmp.match_distance = 1000
+
+    # No side effects.
+    patches = @dmp.patch_make('', 'test')
+    patchstr = @dmp.patch_toText(patches)
+    @dmp.patch_apply(patches, '')
+    assert_equal(patchstr, @dmp.patch_toText(patches))
+
+    # No side effects with major delete.
+    patches = @dmp.patch_make('The quick brown fox jumps over the lazy dog.', 'Woof')
+    patchstr = @dmp.patch_toText(patches)
+    @dmp.patch_apply(patches, 'The quick brown fox jumps over the lazy dog.')
+    assert_equal(patchstr, @dmp.patch_toText(patches))
+
+    # Edge exact match.
+    patches = @dmp.patch_make('', 'test')
+    results = @dmp.patch_apply(patches, '')
+    assert_equal(['test', [true]], results)
+
+    # Near edge exact match.
+    patches = @dmp.patch_make('XY', 'XtestY')
+    results = @dmp.patch_apply(patches, 'XY')
+    assert_equal(['XtestY', [true]], results)
+
+    # Edge partial match.
+    patches = @dmp.patch_make('y', 'y123')
+    results = @dmp.patch_apply(patches, 'x')
+    assert_equal(['x123', [true]], results)
   end
 
 end
